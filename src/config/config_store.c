@@ -267,6 +267,21 @@ ct_is_name_char(int ch)
 }
 
 static int
+ct_is_array_table_header(const char *line)
+{
+    const char *p;
+
+    if (line == NULL)
+        return 0;
+
+    p = line;
+    while (*p != '\0' && isspace((unsigned char)*p))
+        ++p;
+
+    return p[0] == '[' && p[1] == '[';
+}
+
+static int
 ct_parse_table_header(const char *line, char *section, size_t section_size)
 {
     const char *p;
@@ -447,6 +462,19 @@ ct_find_key(const char *section,
         *section_end = g_store.count;
 
     for (i = 0U; i < g_store.count; ++i) {
+        /*
+         * An array-of-tables is still a TOML table boundary.  We preserve it
+         * verbatim, but scalar section/key access deliberately does not treat
+         * [[profiles]] as the same thing as [profiles].
+         */
+        if (ct_is_array_table_header(g_store.line[i])) {
+            if (in_section && section_end != NULL)
+                *section_end = i;
+            current[0] = '\0';
+            in_section = 0;
+            continue;
+        }
+
         if (ct_parse_table_header(g_store.line[i],
                                   parsed_section,
                                   sizeof(parsed_section))) {
