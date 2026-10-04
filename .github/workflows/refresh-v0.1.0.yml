@@ -1,4 +1,4 @@
-name: refresh v0.1.0
+name: neutralize v0.1.0 notes
 
 on:
   push:
@@ -11,61 +11,13 @@ permissions:
   contents: write
 
 jobs:
-  refresh-release:
-    runs-on: windows-latest
-
+  edit-release:
+    runs-on: ubuntu-latest
     steps:
-      - name: Check out sanitized v0.1.0 source
-        uses: actions/checkout@v4
-        with:
-          ref: 5c31d1ee15aa47c91c7eefd5c611be145b4d60c4
-
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Build
-        shell: cmd
-        run: build.bat
-
-      - name: Prepare release assets
-        shell: pwsh
-        run: |
-          $source = "build/app/CalibrationTransfer.exe"
-          $asset = "build/app/CalibrationTransfer-v0.1.0-win-x86.exe"
-
-          if (!(Test-Path $source)) {
-              throw "Expected build output not found: $source"
-          }
-
-          Copy-Item $source $asset -Force
-          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-          $name = Split-Path $asset -Leaf
-          "$hash  $name" | Set-Content "$asset.sha256" -Encoding ascii
-
-      - name: Replace v0.1.0 release and tag
-        shell: pwsh
+      - name: Replace generated release notes
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: 5c31d1ee15aa47c91c7eefd5c611be145b4d60c4
         run: |
-          gh release view v0.1.0 --repo "$env:GITHUB_REPOSITORY" *> $null
-          if ($LASTEXITCODE -eq 0) {
-              gh release delete v0.1.0 --yes --repo "$env:GITHUB_REPOSITORY"
-          }
-
-          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/tags/v0.1.0" *> $null
-          $global:LASTEXITCODE = 0
-
-          gh api --method POST "repos/$env:GITHUB_REPOSITORY/git/refs" `
-              -f ref='refs/tags/v0.1.0' `
-              -f sha="$env:TARGET_SHA"
-
-          gh release create v0.1.0 `
-              "build/app/CalibrationTransfer-v0.1.0-win-x86.exe" `
-              "build/app/CalibrationTransfer-v0.1.0-win-x86.exe.sha256" `
-              --verify-tag `
-              --generate-notes `
-              --title "Calibration Transfer v0.1.0" `
-              --repo "$env:GITHUB_REPOSITORY"
+          gh release edit v0.1.0 --repo "$GITHUB_REPOSITORY" \
+            --title "Calibration Transfer v0.1.0" \
+            --notes "Initial public release of Calibration Transfer."
