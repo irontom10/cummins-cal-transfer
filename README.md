@@ -7,7 +7,7 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Th
 ## Features
 
 - Download calibration data from a supported ECM into a `.ccal` file.
-- Auto-detect newer CLIP sessions and legacy ENI / ELITE II (CM550/CM554) download sessions.
+- Auto-detect newer CLIP sessions, legacy ENI / ELITE II (CM550/CM554), and ECH/ECHO download sessions.
 - Upload a validated `.ccal` file back to a supported ECM.
 - Discover installed RP1210 APIs and devices.
 - Remember the selected adapter/J1939 settings in `~/.config/CalibrationTransfer/config.toml`.
@@ -138,9 +138,9 @@ The generated programming stream was compared request-for-request with a known-g
 
 Upload is rejected before the RP1210 adapter is opened when calibration-file CRC validation fails.
 
-Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ENI / ELITE II programming is intentionally disabled until an independent upload trace is validated.
+Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECH/ECHO download support is validated against an ECH raw-transfer trace and its matching `.ccal`; the reconstructed memory image and generated file layout match the reference. Programming for both legacy families remains disabled until independent programming traces are validated.
 
-See [docs/upload-validation.md](docs/upload-validation.md) for validation details.
+See [docs/upload-validation.md](docs/upload-validation.md) and [docs/echo-validation.md](docs/echo-validation.md) for validation details.
 
 ## Releases
 
