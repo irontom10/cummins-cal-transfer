@@ -1,15 +1,10 @@
 @echo off
 setlocal EnableExtensions
 
-rem CalPull must be built x86:
-rem   - Program.cs is compiled /platform:x86
-rem   - most RP1210 implementations are 32-bit
-rem   - native Cummins CRC verification is compiled into rp1210scan.dll
-rem
-rem A normal "Developer PowerShell" often targets amd64.  If that happened,
-rem switch this batch file's own environment to the x86 MSVC toolchain before
-rem compiling.  The .def file deliberately uses UNDECORATED C names;
-rem MSVC LINK resolves the target-specific C decoration itself.
+rem Build the native RP1210/CLIP core as x86, then publish the .NET 10
+rem WinForms front end as a self-contained x86 single-file executable.
+
+cd /d "%~dp0"
 
 if /I "%VSCMD_ARG_TGT_ARCH%"=="x86" goto :toolchain_ready
 
@@ -26,7 +21,7 @@ if defined VSINSTALLDIR (
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
     echo ERROR: vswhere.exe not found and VSINSTALLDIR is not usable.
-    echo Run this from a Visual Studio Developer shell or install Desktop C++ tools.
+    echo Install Visual Studio Desktop development with C++ or run from a Developer shell.
     goto :fail
 )
 
@@ -52,44 +47,47 @@ if /I not "%VSCMD_ARG_TGT_ARCH%"=="x86" (
     goto :fail
 )
 
-echo [build] MSVC target: %VSCMD_ARG_TGT_ARCH%
+where dotnet >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: dotnet was not found. Install the .NET 10 SDK.
+    goto :fail
+)
 
 if not exist build mkdir build
 
+echo [build] Native x86 DLL...
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /LD ^
     rp1210scan.c rp1210clip.c clip_crypto.c clip_cal.c cummins_crc.c ^
-    /link /MACHINE:X86 /DEF:rp1210scan.def /OUT:build\rp1210scan.dll kernel32.lib user32.lib
+    /link /MACHINE:X86 /DEF:rp1210scan.def ^
+    /OUT:build\rp1210scan.dll ^
+    /IMPLIB:build\rp1210scan.lib ^
+    /PDB:build\rp1210scan.pdb ^
+    kernel32.lib user32.lib
 if errorlevel 1 goto :fail
 
+echo [build] CRC utility...
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS ^
     crc_call.c cummins_crc.c /Fe:build\crc_call.exe
 if errorlevel 1 goto :fail
 
-set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
-if not exist "%CSC%" set "CSC=csc"
-
-"%CSC%" /nologo /platform:x86 /target:winexe /optimize+ ^
-    /reference:System.dll ^
-    /reference:System.Core.dll ^
-    /reference:System.Windows.Forms.dll ^
-    /reference:System.Drawing.dll ^
-    /out:build\CalPull.exe Program.cs
+echo [build] WinForms single-file executable...
+if exist build\publish rmdir /S /Q build\publish
+dotnet publish .\caltool.csproj ^
+    -c Release ^
+    -r win-x86 ^
+    --self-contained true ^
+    -o .\build\publish
 if errorlevel 1 goto :fail
 
-copy /Y CalPull.exe.config build\CalPull.exe.config >nul
+rem Keep generated linker/compiler intermediates out of the source tree.
+del /Q *.obj rp1210scan.exp 2>nul
 
 echo.
 echo Build complete:
-echo   build\CalPull.exe
-echo   build\rp1210scan.dll
+echo   build\publish\CumminsCalTransfer.exe
 echo   build\crc_call.exe
 echo.
-echo Verify native DLL architecture/exports with:
-echo   dumpbin /headers build\rp1210scan.dll ^| findstr /I "machine"
-echo   dumpbin /exports build\rp1210scan.dll ^| findstr /I "rp1210_"
-echo.
-echo Cummins CCAL CRC verification is built into rp1210scan.dll.
-echo Upload refuses a bad CRC before opening the RP1210 adapter.
+echo rp1210scan.dll is embedded in CumminsCalTransfer.exe and extracted at runtime.
 exit /b 0
 
 :fail
