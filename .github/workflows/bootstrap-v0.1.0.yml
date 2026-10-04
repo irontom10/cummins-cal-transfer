@@ -1,0 +1,29 @@
+name: bootstrap v0.1.0
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/bootstrap-v0.1.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create v0.1.0 tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: c995e4a961b7aef35d9e7d23ffa14c4ed30923ec
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.0" >/dev/null 2>&1; then
+            echo "v0.1.0 already exists"
+            exit 0
+          fi
+
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"             -f ref='refs/tags/v0.1.0'             -f sha="$TARGET_SHA"
