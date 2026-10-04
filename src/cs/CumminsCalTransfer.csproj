@@ -16,13 +16,16 @@
     <AssemblyName>CumminsCalTransfer</AssemblyName>
     <ApplicationIcon>caltool.ico</ApplicationIcon>
 
+    <BaseOutputPath>..\..\build\dotnet\bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>..\..\build\dotnet\obj\</BaseIntermediateOutputPath>
+
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Built first by build_x86.bat, then embedded in the managed executable. -->
-    <EmbeddedResource Include="build\rp1210scan.dll">
+    <!-- build.bat creates this before dotnet publish runs. -->
+    <EmbeddedResource Include="..\..\build\native\rp1210scan.dll">
       <LogicalName>rp1210scan.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
