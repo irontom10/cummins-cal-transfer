@@ -29,8 +29,8 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME
-          $source = "build/app/CumminsCalTransfer.exe"
-          $asset = "build/app/CumminsCalTransfer-$version-win-x86.exe"
+          $source = "build/app/CalibrationTransfer.exe"
+          $asset = "build/app/CalibrationTransfer-$version-win-x86.exe"
 
           if (!(Test-Path $source)) {
               throw "Expected build output not found: $source"
@@ -48,7 +48,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = $env:GITHUB_REF_NAME
-          $asset = "build/app/CumminsCalTransfer-$version-win-x86.exe"
+          $asset = "build/app/CalibrationTransfer-$version-win-x86.exe"
           $checksum = "$asset.sha256"
 
           gh release view "$version" --repo "$env:GITHUB_REPOSITORY" *> $null
@@ -59,6 +59,6 @@ jobs:
               gh release create "$version" "$asset" "$checksum" `
                   --verify-tag `
                   --generate-notes `
-                  --title "Cummins CAL Transfer $version" `
+                  --title "Calibration Transfer $version" `
                   --repo "$env:GITHUB_REPOSITORY"
           }

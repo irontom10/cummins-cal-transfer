@@ -25,18 +25,21 @@ if defined VSINSTALLDIR (
     )
 )
 
-set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-if not exist "%VSWHERE%" (
-    echo ERROR: Visual Studio C++ build tools were not found.
-    echo Install "Desktop development with C++" or run from a Visual Studio Developer shell.
+set "VSWHERE="
+for /f "delims=" %%I in ('where vswhere.exe 2^>nul') do if not defined VSWHERE set "VSWHERE=%%I"
+if not defined VSWHERE (
+    for /f "delims=" %%I in ('dir /b /s "%ProgramFiles(x86)%\vswhere.exe" 2^>nul') do if not defined VSWHERE set "VSWHERE=%%I"
+)
+if not defined VSWHERE (
+    echo ERROR: Could not locate the installed compiler toolchain locator.
     goto :fail
 )
 
 set "VSROOT="
-for /f "usebackq tokens=*" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%I"
+for /f "usebackq tokens=*" %%I in (`"%VSWHERE%" -latest -products * -property installationPath`) do set "VSROOT=%%I"
 
 if not defined VSROOT (
-    echo ERROR: Could not locate the Visual Studio x86 C++ toolchain.
+    echo ERROR: Could not locate the x86 C/C++ toolchain.
     goto :fail
 )
 
@@ -74,7 +77,7 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
     "%SRC_C%\rp1210clip.c" ^
     "%SRC_C%\clip_crypto.c" ^
     "%SRC_C%\clip_cal.c" ^
-    "%SRC_C%\cummins_crc.c"
+    "%SRC_C%\ccal_crc.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /DLL /MACHINE:X86 ^
@@ -82,7 +85,7 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210clip.obj clip_crypto.obj clip_cal.obj cummins_crc.obj ^
+    rp1210scan.obj rp1210clip.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 
@@ -92,13 +95,13 @@ if errorlevel 1 goto :fail_from_obj
 
 link /nologo /MACHINE:X86 ^
     /OUT:"%TOOLS%\crc_call.exe" ^
-    crc_call.obj cummins_crc.obj
+    crc_call.obj ccal_crc.obj
 if errorlevel 1 goto :fail_from_obj
 
 popd
 
 echo [3/3] Publishing WinForms app...
-dotnet publish "%SRC_CS%\CumminsCalTransfer.csproj" ^
+dotnet publish "%SRC_CS%\CalibrationTransfer.csproj" ^
     -c Release ^
     -r win-x86 ^
     --self-contained true ^
@@ -107,7 +110,7 @@ if errorlevel 1 goto :fail
 
 echo.
 echo Build complete:
-echo   build\app\CumminsCalTransfer.exe
+echo   build\app\CalibrationTransfer.exe
 echo   build\tools\crc_call.exe
 echo.
 echo Native/intermediate files are also contained under build\.

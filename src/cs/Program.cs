@@ -60,7 +60,7 @@ internal static class NativeRP1210
 
         nativeDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CumminsCalTool",
+            "CalibrationTransfer",
             "native",
             "x86");
 
@@ -185,7 +185,7 @@ public sealed class Rp1210Form : Form
 
     public Rp1210Form()
     {
-        Text = "Cummins CLIP ECM Calibration Tool";
+        Text = "ECM Calibration Transfer";
         Width = 700;
         Height = 500;
         StartPosition = FormStartPosition.CenterScreen;
@@ -495,7 +495,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "Select an RP1210 API/device.",
-                "CLIP Calibration Pull",
+                "Calibration Download",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -509,7 +509,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "No physical device is available for the selected RP1210 API.",
-                "CLIP Calibration Pull",
+                "Calibration Download",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -523,7 +523,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "Tool SA and ECM SA must be two-digit hex values, e.g. FA and 00.",
-                "CLIP Calibration Pull",
+                "Calibration Download",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -531,7 +531,7 @@ public sealed class Rp1210Form : Form
 
         using (SaveFileDialog dialog = new SaveFileDialog())
         {
-            dialog.Filter = "Cummins Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.Filter = "Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
             dialog.DefaultExt = "ccal";
             dialog.AddExtension = true;
             dialog.FileName = "ecm-upload.ccal";
@@ -586,8 +586,8 @@ public sealed class Rp1210Form : Form
                 progressBar.Value = 100;
                 statusLabel.Text = "Saved and native CRC verified: " + path;
                 MessageBox.Show(
-                    "ECM calibration saved and Cummins CRC verified.\r\n\r\n" + path,
-                    "CLIP Calibration Pull",
+                    "ECM calibration saved and calibration CRC verified.\r\n\r\n" + path,
+                    "Calibration Download",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
@@ -597,7 +597,7 @@ public sealed class Rp1210Form : Form
                 statusLabel.Text = error;
                 MessageBox.Show(
                     error + "\r\n\r\nNative return code: " + rc.ToString(),
-                    "CLIP Calibration Pull Failed",
+                    "Calibration Download Failed",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
@@ -641,7 +641,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "Select an RP1210 API/device.",
-                "CLIP Calibration Upload",
+                "Calibration Upload",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -655,7 +655,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "No physical device is available for the selected RP1210 API.",
-                "CLIP Calibration Upload",
+                "Calibration Upload",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -669,7 +669,7 @@ public sealed class Rp1210Form : Form
         {
             MessageBox.Show(
                 "Tool SA and ECM SA must be two-digit hex values, e.g. FA and 00.",
-                "CLIP Calibration Upload",
+                "Calibration Upload",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return;
@@ -677,7 +677,7 @@ public sealed class Rp1210Form : Form
 
         using (OpenFileDialog dialog = new OpenFileDialog())
         {
-            dialog.Filter = "Cummins Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.Filter = "Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
             dialog.CheckFileExists = true;
             dialog.Multiselect = false;
 
@@ -690,10 +690,10 @@ public sealed class Rp1210Form : Form
         if (MessageBox.Show(
                 "Program this calibration into the ECM?\r\n\r\n" +
                 path +
-                "\r\n\r\nThe native uploader will verify the Cummins CCAL CRC " +
+                "\r\n\r\nThe native uploader will verify the CCAL CRC " +
                 "before opening the RP1210 adapter. If CRC verification fails, " +
                 "no programming traffic is sent.",
-                "Confirm CLIP Calibration Upload",
+                "Confirm Calibration Upload",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2) != DialogResult.Yes)
@@ -744,7 +744,7 @@ public sealed class Rp1210Form : Form
                 statusLabel.Text = "Calibration upload completed.";
                 MessageBox.Show(
                     "Calibration upload completed successfully.\r\n\r\n" + path,
-                    "CLIP Calibration Upload",
+                    "Calibration Upload",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
@@ -754,7 +754,7 @@ public sealed class Rp1210Form : Form
                 statusLabel.Text = error;
                 MessageBox.Show(
                     error + "\r\n\r\nNative return code: " + rc.ToString(),
-                    "CLIP Calibration Upload Failed",
+                    "Calibration Upload Failed",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }

@@ -5,7 +5,7 @@
  * clip_crypto.h
  *
  * Public C89 interface for the CLIP session/crypto primitives recovered
- * from PCLWrapper.dll and verified against the supplied key-cycle capture.
+ * from reference implementation and verified against the supplied key-cycle capture.
  */
 
 #include <limits.h>
