@@ -2,7 +2,7 @@
 
 Open-source Windows x86 utility for downloading and uploading ECM calibration data over J1939 through an RP1210 adapter.
 
-The project is split into a C89 native core and a .NET 10 WinForms front end. The native transport/protocol DLL is embedded into the final executable and extracted to a versioned per-user cache at runtime.
+The project is split into a C89 native core and a .NET 10 WinForms front end. Both native DLLs are embedded into the final executable and extracted to a versioned per-user cache at runtime.
 
 ## Features
 
@@ -69,12 +69,13 @@ build/
 ├── tools/
 │   └── crc_call.exe
 ├── native/
-│   └── rp1210scan.dll
+│   ├── rp1210scan.dll
+│   └── ctconfig.dll
 ├── obj/
 └── dotnet/
 ```
 
-`rp1210scan.dll` is embedded into `CalibrationTransfer.exe`; the copy under `build/native` is a build intermediate.
+`rp1210scan.dll` and `ctconfig.dll` are embedded into `CalibrationTransfer.exe`; the copies under `build/native` are build intermediates.
 
 
 ## Configuration

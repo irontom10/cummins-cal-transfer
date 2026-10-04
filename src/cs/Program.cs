@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
 internal static class NativeRP1210
 {
+    private const string DllName = "rp1210scan.dll";
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     public struct Device
     {
@@ -27,17 +27,17 @@ internal static class NativeRP1210
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void ProgressCallback(int percent, IntPtr message);
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_refresh();
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_count();
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_get(int index, out Device device);
 
     [DllImport(
-        "rp1210scan.dll",
+        DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
     public static extern int rp1210_pull_ccal(
@@ -50,7 +50,7 @@ internal static class NativeRP1210
         ProgressCallback progress);
 
     [DllImport(
-        "rp1210scan.dll",
+        DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
     public static extern int rp1210_upload_ccal(
@@ -63,7 +63,7 @@ internal static class NativeRP1210
         ProgressCallback progress);
 
     [DllImport(
-        "rp1210scan.dll",
+        DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
     public static extern int rp1210_get_last_error(
