@@ -5,6 +5,7 @@ cd /d "%~dp0"
 
 set "ROOT=%CD%"
 set "SRC_C=%ROOT%\src\c"
+set "SRC_CONFIG=%ROOT%\src\config"
 set "SRC_CS=%ROOT%\src\cs"
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
@@ -69,7 +70,7 @@ if exist "%BUILD%" rmdir /S /Q "%BUILD%"
 mkdir "%OBJ%" "%NATIVE%" "%APP%" "%TOOLS%"
 if errorlevel 1 goto :fail
 
-echo [1/3] Building native RP1210/CLIP core...
+echo [1/4] Building native RP1210/CLIP core...
 pushd "%OBJ%"
 
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
@@ -89,7 +90,21 @@ link /nologo /DLL /MACHINE:X86 ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 
-echo [2/3] Building CRC utility...
+echo [2/4] Building standalone UI config store...
+cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
+    /Fo:config_store.obj ^
+    "%SRC_CONFIG%\config_store.c"
+if errorlevel 1 goto :fail_from_obj
+
+link /nologo /DLL /MACHINE:X86 ^
+    /DEF:"%SRC_CONFIG%\config_store.def" ^
+    /OUT:"%NATIVE%\ctconfig.dll" ^
+    /IMPLIB:"%NATIVE%\ctconfig.lib" ^
+    /PDB:"%NATIVE%\ctconfig.pdb" ^
+    config_store.obj kernel32.lib
+if errorlevel 1 goto :fail_from_obj
+
+echo [3/4] Building CRC utility...
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c "%SRC_C%\crc_call.c"
 if errorlevel 1 goto :fail_from_obj
 
@@ -100,7 +115,7 @@ if errorlevel 1 goto :fail_from_obj
 
 popd
 
-echo [3/3] Publishing WinForms app...
+echo [4/4] Publishing WinForms app...
 dotnet publish "%SRC_CS%\CalibrationTransfer.csproj" ^
     -c Release ^
     -r win-x86 ^
