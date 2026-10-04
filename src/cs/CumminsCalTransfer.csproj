@@ -15,6 +15,7 @@
 
     <AssemblyName>CumminsCalTransfer</AssemblyName>
     <ApplicationIcon>caltool.ico</ApplicationIcon>
+    <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
 
     <BaseOutputPath>..\..\build\dotnet\bin\</BaseOutputPath>
     <BaseIntermediateOutputPath>..\..\build\dotnet\obj\</BaseIntermediateOutputPath>
