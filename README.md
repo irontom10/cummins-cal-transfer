@@ -113,6 +113,10 @@ The release workflow builds from the tagged revision and attaches a versioned ex
 This project is licensed under the **GNU General Public License version 2 only**
 (`GPL-2.0-only`). See [LICENSE](LICENSE).
 
+## Trademark and affiliation
+
+This project is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Cummins Inc.
+
 ## Programming caution
 
 ECM programming is not a read-only operation. Use stable power, a reliable RP1210 connection, and a calibration intended for the target module. Do not interrupt power or communications during an upload.
