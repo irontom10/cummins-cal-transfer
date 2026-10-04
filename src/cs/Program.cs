@@ -9,99 +9,6 @@ using System.Windows.Forms;
 
 internal static class NativeRP1210
 {
-    private static bool resolverInstalled;
-
-    public static void Initialize()
-    {
-        if (resolverInstalled)
-            return;
-
-        NativeLibrary.SetDllImportResolver(
-            typeof(NativeRP1210).Assembly,
-            ResolveNativeLibrary);
-
-        resolverInstalled = true;
-    }
-
-    private static IntPtr ResolveNativeLibrary(
-        string libraryName,
-        System.Reflection.Assembly assembly,
-        DllImportSearchPath? searchPath)
-    {
-        Stream resource;
-        MemoryStream memory;
-        byte[] image;
-        byte[] digest;
-        string hash;
-        string nativeDir;
-        string dllPath;
-        string tempPath;
-
-        if (!String.Equals(
-                libraryName,
-                "rp1210scan.dll",
-                StringComparison.OrdinalIgnoreCase))
-            return IntPtr.Zero;
-
-        resource = assembly.GetManifestResourceStream("rp1210scan.dll");
-        if (resource == null)
-            throw new DllNotFoundException(
-                "Embedded native resource rp1210scan.dll was not found.");
-
-        using (resource)
-        using (memory = new MemoryStream())
-        {
-            resource.CopyTo(memory);
-            image = memory.ToArray();
-        }
-
-        digest = SHA256.HashData(image);
-        hash = Convert.ToHexString(digest);
-
-        nativeDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CalibrationTransfer",
-            "native",
-            "x86");
-
-        Directory.CreateDirectory(nativeDir);
-
-        /*
-         * Never overwrite a native DLL that Windows may already have mapped.
-         * Different embedded DLL builds get different filenames automatically.
-         */
-        dllPath = Path.Combine(
-            nativeDir,
-            "rp1210scan-" + hash.Substring(0, 16) + ".dll");
-
-        if (!File.Exists(dllPath))
-        {
-            tempPath = dllPath + "." + Environment.ProcessId.ToString() + ".tmp";
-            File.WriteAllBytes(tempPath, image);
-
-            try
-            {
-                File.Move(tempPath, dllPath);
-            }
-            catch (IOException)
-            {
-                /* Another instance may have won the race and created it. */
-                if (!File.Exists(dllPath))
-                    throw;
-
-                try
-                {
-                    File.Delete(tempPath);
-                }
-                catch
-                {
-                }
-            }
-        }
-
-        return NativeLibrary.Load(dllPath);
-    }
-
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     public struct Device
     {
@@ -182,6 +89,8 @@ public sealed class Rp1210Form : Form
         new List<NativeRP1210.Device>();
 
     private NativeRP1210.ProgressCallback nativeProgress;
+    private readonly UiConfig uiConfig = new UiConfig();
+    private bool configLoaded;
 
     public Rp1210Form()
     {
@@ -196,7 +105,26 @@ public sealed class Rp1210Form : Form
 
         Load += delegate
         {
+            string configError;
+
+            configLoaded = uiConfig.Load(out configError);
             RefreshDevices();
+
+            if (configLoaded)
+            {
+                ApplyConfiguration();
+            }
+            else if (!String.IsNullOrEmpty(configError))
+            {
+                statusLabel.Text =
+                    statusLabel.Text + " Config warning: " + configError;
+            }
+        };
+
+        FormClosing += delegate
+        {
+            SaveConfiguration(false);
+            uiConfig.Dispose();
         };
     }
 
@@ -419,6 +347,100 @@ public sealed class Rp1210Form : Form
         deviceCombo.SelectedIndex = 0;
     }
 
+    private void ApplyConfiguration()
+    {
+        int i;
+        int wantedApi;
+        int wantedDevice;
+        string baudText;
+
+        if (!configLoaded)
+            return;
+
+        wantedApi = -1;
+        for (i = 0; i < apiCombo.Items.Count; ++i)
+        {
+            ApiItem item = (ApiItem)apiCombo.Items[i];
+            if (String.Equals(
+                    item.Api,
+                    uiConfig.Api,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                wantedApi = i;
+                break;
+            }
+        }
+
+        if (wantedApi >= 0)
+            apiCombo.SelectedIndex = wantedApi;
+
+        wantedDevice = -1;
+        for (i = 0; i < deviceCombo.Items.Count; ++i)
+        {
+            DeviceItem item = (DeviceItem)deviceCombo.Items[i];
+            if (item.DeviceId == uiConfig.DeviceId)
+            {
+                wantedDevice = i;
+                break;
+            }
+        }
+
+        if (wantedDevice >= 0)
+            deviceCombo.SelectedIndex = wantedDevice;
+
+        baudText = uiConfig.Baud.ToString();
+        if (baudCombo.Items.Contains(baudText))
+            baudCombo.SelectedItem = baudText;
+
+        toolSaText.Text = uiConfig.ToolSa.ToString("X2");
+        ecmSaText.Text = uiConfig.EcmSa.ToString("X2");
+    }
+
+    private bool SaveConfiguration(bool showError)
+    {
+        ApiItem api;
+        DeviceItem device;
+        int baud;
+        byte toolSa;
+        byte ecmSa;
+        string error;
+
+        if (!configLoaded ||
+            apiCombo.SelectedItem == null ||
+            deviceCombo.SelectedItem == null)
+            return false;
+
+        api = (ApiItem)apiCombo.SelectedItem;
+        device = (DeviceItem)deviceCombo.SelectedItem;
+
+        if (!Int32.TryParse((string)baudCombo.SelectedItem, out baud))
+            baud = 250000;
+
+        if (!TryParseHexByte(toolSaText.Text, out toolSa) ||
+            !TryParseHexByte(ecmSaText.Text, out ecmSa))
+            return false;
+
+        uiConfig.Api = api.Api;
+        uiConfig.DeviceId = device.DeviceId;
+        uiConfig.Baud = baud;
+        uiConfig.ToolSa = toolSa;
+        uiConfig.EcmSa = ecmSa;
+
+        if (uiConfig.Save(out error))
+            return true;
+
+        if (showError)
+        {
+            MessageBox.Show(
+                error,
+                "Configuration Save Failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+
+        return false;
+    }
+
     private int ResolveDeviceId(string api, int requestedId)
     {
         int i;
@@ -528,6 +550,8 @@ public sealed class Rp1210Form : Form
                 MessageBoxIcon.Warning);
             return;
         }
+
+        SaveConfiguration(false);
 
         using (SaveFileDialog dialog = new SaveFileDialog())
         {
@@ -674,6 +698,8 @@ public sealed class Rp1210Form : Form
                 MessageBoxIcon.Warning);
             return;
         }
+
+        SaveConfiguration(false);
 
         using (OpenFileDialog dialog = new OpenFileDialog())
         {
@@ -828,7 +854,7 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        NativeRP1210.Initialize();
+        EmbeddedNative.Initialize();
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
