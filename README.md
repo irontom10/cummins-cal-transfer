@@ -2,12 +2,12 @@
 
 Open-source Windows x86 utility for downloading and uploading ECM calibration data over J1939 through an RP1210 adapter.
 
-The project is split into a C89 native core and a .NET 10 WinForms front end. Both native DLLs are embedded into the final executable and extracted to a versioned per-user cache at runtime.
+The project is split into a C89 native core and a .NET 10 WinForms front end. The native side keeps RP1210/J1939 transport separate from CLIP, ECH/ECHO, and ENI/ELITE II protocol logic. Both native DLLs are embedded into the final executable and extracted to a versioned per-user cache at runtime.
 
 ## Features
 
 - Download calibration data from a supported ECM into a `.ccal` file.
-- Auto-detect newer CLIP sessions and legacy ENI / ELITE II (CM550/CM554) download sessions.
+- Auto-detect newer CLIP sessions, ECH/ECHO-series readback sessions, and legacy ENI / ELITE II (CM550/CM554) download sessions.
 - Upload a validated `.ccal` file back to a supported ECM.
 - Discover installed RP1210 APIs and devices.
 - Remember the selected adapter/J1939 settings in `~/.config/CalibrationTransfer/config.toml`.
@@ -28,7 +28,10 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Bo
     │   ├── clip_crypto.c/.h
     │   ├── ccal_crc.c/.h
     │   ├── crc_call.c
-    │   ├── rp1210clip.c/.h
+    │   ├── clip_transfer.c
+    │   ├── echo_transfer.c/.h
+    │   ├── rp1210clip.h
+    │   ├── rp1210_transport.c/.h
     │   ├── rp1210scan.c/.h
     │   ├── rp1210scan.def
     │   ├── config_store.c/.h
@@ -138,7 +141,9 @@ The generated programming stream was compared request-for-request with a known-g
 
 Upload is rejected before the RP1210 adapter is opened when calibration-file CRC validation fails.
 
-Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ENI / ELITE II programming is intentionally disabled until an independent upload trace is validated.
+ECH/ECHO readback support is validated against the supplied raw Proprietary-A trace and matching `.ccal`: descriptor 0x002E, metadata reads, transfer control 0x04/0x05, and all 4C/4D memory reads reproduce the calibration image. The supplied ECH trace is a readback trace, not a programming trace, so ECH/ECHO programming remains intentionally blocked.
+
+Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
 
 See [docs/upload-validation.md](docs/upload-validation.md) for validation details.
 
