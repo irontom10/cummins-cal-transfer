@@ -60,6 +60,7 @@
 #define PULL_ERR_FILE                   -110
 #define PULL_ERR_CRC                    -111
 #define PULL_ERR_UPLOAD                 -112
+#define PULL_ERR_ELITE_II_TX_BLOCKED    -113
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
@@ -3439,9 +3440,20 @@ rp1210_upload_ccal(const char *api_name,
 
     rc = clip_authenticate(&ctx);
     if (rc == PULL_DETECTED_ELITE_II) {
+        /*
+         * INTENTIONAL SAFETY BLOCKER.
+         *
+         * ECHO II-era / ENI / ELITE II controllers may be read, but this
+         * application must not send calibration/configuration data to them.
+         * Keep this gate ahead of every programming preflight/loader command.
+         */
+        report_progress(
+            &ctx,
+            5,
+            "ECHO II / ELITE II programming is intentionally blocked.");
         set_last_error_text(
-            "ENI/ELITE II download is supported, but CM550/CM554 programming is disabled until an ELITE II upload trace is independently validated.");
-        rc = PULL_ERR_UPLOAD;
+            "Sending config files to ECHO II-era ECMs is not supported due to potential corruption of the ECM. If you know what you are doing, use the recommended OEM software.");
+        rc = PULL_ERR_ELITE_II_TX_BLOCKED;
         goto done;
     }
     if (rc != PULL_OK)
