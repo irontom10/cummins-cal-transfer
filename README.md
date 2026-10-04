@@ -107,6 +107,8 @@ tool_sa = 0xFA
 ecm_sa = 0x00
 ```
 
+Set `baud = 0` to request RP1210 automatic bitrate detection (`J1939:Baud=Auto`). Auto mode does not fall back to an unspecified/default fixed bitrate if the adapter rejects automatic detection.
+
 The native config API is section/key based rather than tied to this schema, so
 future UI settings can be added without coupling them to the protocol code.
 Unknown TOML lines and comments are preserved when the UI updates its settings.
