@@ -113,6 +113,7 @@ public sealed class Rp1210Form : Form
 
         MakeLabel("Baud:", 145);
         baudCombo = MakeCombo(145);
+        baudCombo.Items.Add("Auto");
         baudCombo.Items.Add("125000");
         baudCombo.Items.Add("250000");
         baudCombo.Items.Add("500000");
@@ -322,7 +323,7 @@ public sealed class Rp1210Form : Form
         if (wantedDevice >= 0)
             deviceCombo.SelectedIndex = wantedDevice;
 
-        baudText = uiConfig.Baud.ToString();
+        baudText = uiConfig.Baud == 0 ? "Auto" : uiConfig.Baud.ToString();
         if (baudCombo.Items.Contains(baudText))
             baudCombo.SelectedItem = baudText;
 
@@ -347,8 +348,7 @@ public sealed class Rp1210Form : Form
         api = (ApiItem)apiCombo.SelectedItem;
         device = (DeviceItem)deviceCombo.SelectedItem;
 
-        if (!Int32.TryParse((string)baudCombo.SelectedItem, out baud))
-            baud = 250000;
+        baud = GetSelectedBaud();
 
         if (!TryParseHexByte(toolSaText.Text, out toolSa) ||
             !TryParseHexByte(ecmSaText.Text, out ecmSa))
@@ -392,6 +392,22 @@ public sealed class Rp1210Form : Form
         }
 
         return -1;
+    }
+
+    private int GetSelectedBaud()
+    {
+        string selected;
+        int baud;
+
+        selected = baudCombo.SelectedItem as string;
+
+        if (String.Equals(selected, "Auto", StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        if (!Int32.TryParse(selected, out baud))
+            return 250000;
+
+        return baud;
     }
 
     private static bool TryParseHexByte(string text, out byte value)
@@ -471,8 +487,7 @@ public sealed class Rp1210Form : Form
             return;
         }
 
-        if (!Int32.TryParse((string)baudCombo.SelectedItem, out baud))
-            baud = 250000;
+        baud = GetSelectedBaud();
 
         if (!TryParseHexByte(toolSaText.Text, out toolSa) ||
             !TryParseHexByte(ecmSaText.Text, out ecmSa))
@@ -619,8 +634,7 @@ public sealed class Rp1210Form : Form
             return;
         }
 
-        if (!Int32.TryParse((string)baudCombo.SelectedItem, out baud))
-            baud = 250000;
+        baud = GetSelectedBaud();
 
         if (!TryParseHexByte(toolSaText.Text, out toolSa) ||
             !TryParseHexByte(ecmSaText.Text, out ecmSa))
