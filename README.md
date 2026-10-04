@@ -10,6 +10,7 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Th
 - Auto-detect newer CLIP sessions and legacy ENI / ELITE II (CM550/CM554) download sessions.
 - Upload a validated `.ccal` file back to a supported ECM.
 - Discover installed RP1210 APIs and devices.
+- Remember the selected adapter/J1939 settings in `~/.config/CalibrationTransfer/config.toml`.
 - Perform session authentication and calibration transfer.
 - Validate calibration-file CRC fields before programming traffic is sent.
 - Provide a standalone CRC checker/setter.
@@ -30,7 +31,12 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Th
     │   ├── rp1210clip.c/.h
     │   ├── rp1210scan.c/.h
     │   └── rp1210scan.def
+    ├── config/
+    │   ├── config_store.c/.h
+    │   └── config_store.def
     └── cs/
+        ├── ConfigStore.cs
+        ├── EmbeddedNative.cs
         ├── Program.cs
         ├── CalibrationTransfer.csproj
         └── caltool.ico
@@ -70,6 +76,38 @@ build/
 ```
 
 `rp1210scan.dll` is embedded into `CalibrationTransfer.exe`; the copy under `build/native` is a build intermediate.
+
+
+## Configuration
+
+The WinForms UI persists its own settings at:
+
+```text
+~/.config/CalibrationTransfer/config.toml
+```
+
+On Windows this resolves to `%USERPROFILE%\.config\CalibrationTransfer\config.toml`.
+
+Configuration is intentionally isolated from the ECM/RP1210 core. A standalone
+native `ctconfig.dll` owns the TOML file and is embedded in the single-file UI
+executable. The C# UI accesses it only through the small C ABI wrapper.
+
+Current settings:
+
+```toml
+[adapter]
+api = "NULN3R32"
+device = 2
+baud = 250000
+
+[j1939]
+tool_sa = 0xFA
+ecm_sa = 0x00
+```
+
+The native config API is section/key based rather than tied to this schema, so
+future UI settings can be added without coupling them to the protocol code.
+Unknown TOML lines and comments are preserved when the UI updates its settings.
 
 ## CRC utility
 
