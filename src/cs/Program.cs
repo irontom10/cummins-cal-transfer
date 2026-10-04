@@ -27,13 +27,13 @@ internal static class NativeRP1210
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void ProgressCallback(int percent, IntPtr message);
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_refresh();
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_count();
 
-    [DllImport("rp1210scan.dll", CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int rp1210_get(int index, out Device device);
 
     [DllImport(
