@@ -43,8 +43,9 @@
 #define PULL_ERR_CRC                    -111
 #define PULL_ERR_UPLOAD                 -112
 
-/* Internal non-error result from the CLIP open probe. */
+/* Internal non-error platform-discovery results. */
 #define PULL_DETECTED_ELITE_II            1
+#define PULL_DETECTED_ECHO                2
 
 /*
  * ENI / ELITE II protocol values recovered from the supplied CM550/CM554
@@ -53,7 +54,12 @@
  */
 #define ELITE_II_DESCRIPTOR_ID       0x1238U
 #define ELITE_II_DESCRIPTOR_SIZE     0x003aU
-#define ELITE_II_BLOCK_SIZE          1000U
+
+#define ECHO_PRODUCT_ID              0x0043U
+#define ECHO_DESCRIPTOR_ID           0x002eU
+#define ECHO_DESCRIPTOR_SIZE         0x0030U
+
+#define LEGACY_BLOCK_SIZE            1000U
 
 /*
  * Tool-context bytes from the supplied 2026-10-03 reference tool capture.
@@ -99,6 +105,22 @@ struct pull_meta {
     char file_descriptor[256];
     char harness_compat[32];
     char leading_word[8];
+};
+
+struct echo_meta {
+    char calibration_version[16];
+    char module_id[32];
+    char product_id[32];
+    char module_part_number[32];
+    char market_id[64];
+    char interface_level[16];
+    char start_boot_loader_version[16];
+    char end_boot_loader_version[16];
+    char engine_id[32];
+    char fuel_system_id[32];
+    char byte_order[32];
+    char address_length[16];
+    char cpp_data_link[32];
 };
 
 struct pull_ctx {
@@ -704,7 +726,7 @@ clip_authenticate(struct pull_ctx *ctx)
 
 
 static clip_u32
-elite_load_be32(const clip_u8 *p)
+legacy_load_be32(const clip_u8 *p)
 {
     clip_u32 v;
 
@@ -716,13 +738,13 @@ elite_load_be32(const clip_u8 *p)
 }
 
 static unsigned int
-elite_load_be16(const clip_u8 *p)
+legacy_load_be16(const clip_u8 *p)
 {
     return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
 }
 
 static void
-elite_store_be32(clip_u8 *p, clip_u32 v)
+legacy_store_be32(clip_u8 *p, clip_u32 v)
 {
     p[0] = (clip_u8)(v >> 24);
     p[1] = (clip_u8)(v >> 16);
@@ -731,7 +753,7 @@ elite_store_be32(clip_u8 *p, clip_u32 v)
 }
 
 static int
-elite_exchange(struct pull_ctx *ctx,
+legacy_exchange(struct pull_ctx *ctx,
                const clip_u8 *request,
                size_t request_len,
                clip_u8 expected_opcode,
@@ -774,7 +796,7 @@ elite_exchange(struct pull_ctx *ctx,
             incoming[2] == request[0]) {
             char msg[160];
             sprintf(msg,
-                    "ELITE II negative response to service %02X (reason %02X).",
+                    "Legacy raw negative response to service %02X (reason %02X).",
                     (unsigned int)request[0],
                     (unsigned int)incoming[1]);
             set_last_error_text(msg);
@@ -785,7 +807,7 @@ elite_exchange(struct pull_ctx *ctx,
             continue;
 
         if (incoming_len > reply_capacity) {
-            set_last_error_text("ELITE II response exceeds receive buffer.");
+            set_last_error_text("Legacy raw response exceeds receive buffer.");
             return PULL_ERR_PROTOCOL;
         }
 
@@ -794,12 +816,12 @@ elite_exchange(struct pull_ctx *ctx,
         return PULL_OK;
     }
 
-    set_last_error_text("Timed out waiting for ELITE II response from ECM.");
+    set_last_error_text("Timed out waiting for legacy raw response from ECM.");
     return PULL_ERR_TIMEOUT;
 }
 
 static int
-elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
+legacy_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
 {
     clip_u8 request[8];
     clip_u8 reply[32];
@@ -815,7 +837,7 @@ elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
     request[6] = 0xffU;
     request[7] = 0xffU;
 
-    rc = elite_exchange(ctx,
+    rc = legacy_exchange(ctx,
                         request,
                         sizeof(request),
                         0x0cU,
@@ -830,7 +852,7 @@ elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
         reply[1] != opcode ||
         reply[2] != 0xfeU ||
         reply[3] != 0xfeU) {
-        set_last_error_text("Invalid ELITE II transfer-control acknowledgement.");
+        set_last_error_text("Invalid legacy transfer-control acknowledgement.");
         return PULL_ERR_PROTOCOL;
     }
 
@@ -870,7 +892,7 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
     request[6] = (clip_u8)ELITE_II_DESCRIPTOR_SIZE;
     request[7] = 0xffU;
 
-    rc = elite_exchange(ctx,
+    rc = legacy_exchange(ctx,
                         request,
                         sizeof(request),
                         0x44U,
@@ -910,9 +932,9 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
      * the three runs present in the resulting legacy .ccal:
      * 00004004-00006000, 00008000-0007FFFE, 01000080-01001FFE.
      */
-    nested_len = elite_load_be16(data);
-    count = elite_load_be16(data + 4U);
-    address_size = elite_load_be16(data + 6U);
+    nested_len = legacy_load_be16(data);
+    count = legacy_load_be16(data + 4U);
+    address_size = legacy_load_be16(data + 6U);
 
     if ((size_t)nested_len + 2U > data_len ||
         count == 0U ||
@@ -929,7 +951,7 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
         return PULL_ERR_PROTOCOL;
     }
 
-    length_size = elite_load_be16(data + length_size_off);
+    length_size = legacy_load_be16(data + length_size_off);
     if (length_size != 4U) {
         set_last_error_text("Unsupported ELITE II calibration length width.");
         return PULL_ERR_PROTOCOL;
@@ -945,9 +967,9 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
     map->range_count = count;
     for (i = 0U; i < count; ++i) {
         map->ranges[i].address =
-            elite_load_be32(data + starts_off + ((size_t)i * 4U));
+            legacy_load_be32(data + starts_off + ((size_t)i * 4U));
         map->ranges[i].length =
-            elite_load_be32(data + lengths_off + ((size_t)i * 4U));
+            legacy_load_be32(data + lengths_off + ((size_t)i * 4U));
         map->ranges[i].auxiliary = (clip_u32)0;
 
         if (map->ranges[i].length == (clip_u32)0 ||
@@ -962,7 +984,7 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
 }
 
 static int
-elite_read_memory(struct pull_ctx *ctx,
+legacy_read_memory(struct pull_ctx *ctx,
                   clip_u32 address,
                   unsigned int length,
                   clip_u8 *out)
@@ -976,13 +998,13 @@ elite_read_memory(struct pull_ctx *ctx,
     int rc;
 
     if (ctx == NULL || out == NULL || length == 0U ||
-        length > ELITE_II_BLOCK_SIZE) {
+        length > LEGACY_BLOCK_SIZE) {
         return PULL_ERR_ARGUMENT;
     }
 
     if (length <= 0xffU) {
         request[0] = 0x4aU;
-        elite_store_be32(request + 1U, address);
+        legacy_store_be32(request + 1U, address);
         request[5] = (clip_u8)length;
         request[6] = 0xffU;
         request[7] = 0xffU;
@@ -991,14 +1013,14 @@ elite_read_memory(struct pull_ctx *ctx,
         header_len = 6U;
     } else {
         request[0] = 0x4cU;
-        elite_store_be32(request + 1U, address);
-        elite_store_be32(request + 5U, (clip_u32)length);
+        legacy_store_be32(request + 1U, address);
+        legacy_store_be32(request + 5U, (clip_u32)length);
         request_len = 9U;
         expected_opcode = 0x4dU;
         header_len = 9U;
     }
 
-    rc = elite_exchange(ctx,
+    rc = legacy_exchange(ctx,
                         request,
                         request_len,
                         expected_opcode,
@@ -1010,24 +1032,425 @@ elite_read_memory(struct pull_ctx *ctx,
         return rc;
 
     if (reply_len < header_len + (size_t)length ||
-        elite_load_be32(reply + 1U) != address) {
-        set_last_error_text("Invalid ELITE II memory-read reply.");
+        legacy_load_be32(reply + 1U) != address) {
+        set_last_error_text("Invalid legacy memory-read reply.");
         return PULL_ERR_PROTOCOL;
     }
 
     if (expected_opcode == 0x4bU) {
         if (reply[5] != (clip_u8)length) {
-            set_last_error_text("ELITE II short-read length mismatch.");
+            set_last_error_text("Legacy short-read length mismatch.");
             return PULL_ERR_PROTOCOL;
         }
     } else {
-        if (elite_load_be32(reply + 5U) != (clip_u32)length) {
-            set_last_error_text("ELITE II block-read length mismatch.");
+        if (legacy_load_be32(reply + 5U) != (clip_u32)length) {
+            set_last_error_text("Legacy block-read length mismatch.");
             return PULL_ERR_PROTOCOL;
         }
     }
 
     memcpy(out, reply + header_len, (size_t)length);
+    return PULL_OK;
+}
+
+
+static int
+legacy_read_parameter(struct pull_ctx *ctx,
+                      unsigned int identifier,
+                      unsigned int length,
+                      clip_u8 *out,
+                      size_t out_capacity,
+                      size_t *out_len,
+                      unsigned long timeout_ms)
+{
+    clip_u8 request[8];
+    clip_u8 reply[CLIP_WIRE_MAX];
+    size_t reply_len;
+    int rc;
+
+    if (ctx == NULL || out == NULL || out_len == NULL ||
+        length == 0U || length > 255U ||
+        (size_t)length > out_capacity) {
+        return PULL_ERR_ARGUMENT;
+    }
+
+    request[0] = 0x43U;
+    request[1] = (clip_u8)((identifier >> 8) & 0xffU);
+    request[2] = (clip_u8)(identifier & 0xffU);
+    request[3] = 0x00U;
+    request[4] = 0x00U;
+    request[5] = 0x00U;
+    request[6] = (clip_u8)length;
+    request[7] = 0xffU;
+
+    rc = legacy_exchange(ctx,
+                         request,
+                         sizeof(request),
+                         0x44U,
+                         reply,
+                         sizeof(reply),
+                         &reply_len,
+                         timeout_ms);
+    if (rc != PULL_OK)
+        return rc;
+
+    if (reply_len < 4U + (size_t)length ||
+        reply[1] != request[1] ||
+        reply[2] != request[2] ||
+        reply[3] != request[6]) {
+        set_last_error_text("Invalid legacy parameter-read reply.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    memcpy(out, reply + 4U, (size_t)length);
+    *out_len = (size_t)length;
+    return PULL_OK;
+}
+
+static void
+copy_trimmed_ascii(char *dst,
+                   size_t dst_size,
+                   const clip_u8 *src,
+                   size_t src_len)
+{
+    size_t first;
+    size_t last;
+    size_t n;
+
+    if (dst == NULL || dst_size == 0U)
+        return;
+
+    dst[0] = '\0';
+    if (src == NULL || src_len == 0U)
+        return;
+
+    first = 0U;
+    while (first < src_len &&
+           (src[first] == (clip_u8)' ' ||
+            src[first] == 0x00U ||
+            src[first] == 0xffU)) {
+        ++first;
+    }
+
+    last = src_len;
+    while (last > first &&
+           (src[last - 1U] == (clip_u8)' ' ||
+            src[last - 1U] == 0x00U ||
+            src[last - 1U] == 0xffU)) {
+        --last;
+    }
+
+    n = last - first;
+    if (n >= dst_size)
+        n = dst_size - 1U;
+
+    if (n != 0U)
+        memcpy(dst, src + first, n);
+    dst[n] = '\0';
+}
+
+static void
+format_hex_bytes(char *dst,
+                 size_t dst_size,
+                 const clip_u8 *src,
+                 size_t src_len)
+{
+    size_t i;
+    size_t used;
+
+    if (dst == NULL || dst_size == 0U)
+        return;
+
+    dst[0] = '\0';
+    if (src == NULL)
+        return;
+
+    used = 0U;
+    for (i = 0U; i < src_len; ++i) {
+        if (used + 2U >= dst_size)
+            break;
+        sprintf(dst + used, "%02X", (unsigned int)src[i]);
+        used += 2U;
+    }
+}
+
+static int
+echo_probe(struct pull_ctx *ctx)
+{
+    clip_u8 product[3];
+    size_t product_len;
+    int rc;
+
+    product_len = 0U;
+    rc = legacy_read_parameter(ctx,
+                               ECHO_PRODUCT_ID,
+                               3U,
+                               product,
+                               sizeof(product),
+                               &product_len,
+                               1000UL);
+    if (rc == PULL_OK) {
+        if (product_len == 3U &&
+            product[0] == (clip_u8)'E' &&
+            product[1] == (clip_u8)'C' &&
+            product[2] == (clip_u8)'H') {
+            return PULL_DETECTED_ECHO;
+        }
+
+        return PULL_OK;
+    }
+
+    /*
+     * This is a read-only discovery probe.  Newer CLIP platforms and other
+     * legacy families may ignore or reject service 0x43 outside their own
+     * session flow; that simply means "not ECHO" and normal discovery
+     * continues.
+     */
+    if (rc == PULL_ERR_TIMEOUT || rc == PULL_ERR_PROTOCOL) {
+        clear_last_error();
+        return PULL_OK;
+    }
+
+    return rc;
+}
+
+static int
+echo_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
+{
+    clip_u8 data[ECHO_DESCRIPTOR_SIZE];
+    size_t data_len;
+    size_t starts_off;
+    size_t allocated_width_off;
+    size_t allocated_off;
+    size_t used_width_off;
+    size_t used_off;
+    size_t required;
+    unsigned int nested_len;
+    unsigned int count;
+    unsigned int address_width;
+    unsigned int allocated_width;
+    unsigned int used_width;
+    unsigned int i;
+    clip_u32 allocated_length;
+    clip_u32 used_length;
+    int rc;
+
+    if (ctx == NULL || map == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    memset(map, 0, sizeof(*map));
+    data_len = 0U;
+
+    rc = legacy_read_parameter(ctx,
+                               ECHO_DESCRIPTOR_ID,
+                               ECHO_DESCRIPTOR_SIZE,
+                               data,
+                               sizeof(data),
+                               &data_len,
+                               CLIP_TIMEOUT_MS);
+    if (rc != PULL_OK)
+        return rc;
+
+    if (data_len < 12U) {
+        set_last_error_text("ECHO calibration descriptor is too short.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    /*
+     * ECH/ECHO parameter 0x002E from the supplied trace:
+     *
+     *   u16 payload_length
+     *   u16 flags
+     *   u16 range_count
+     *   u16 address_width (=4)
+     *   be32 start[range_count]
+     *   u16 allocated_length_width (=4)
+     *   be32 allocated_length[range_count]
+     *   u16 used_length_width (=4)
+     *   be32 used_length[range_count]
+     *
+     * The reference transfer reads only used_length, not the whole allocated
+     * span.  For the supplied ECM the second range is allocated as 0x30000
+     * bytes but only 0x24D86 bytes are transferred.
+     */
+    nested_len = legacy_load_be16(data);
+    count = legacy_load_be16(data + 4U);
+    address_width = legacy_load_be16(data + 6U);
+
+    if ((size_t)nested_len + 2U > data_len ||
+        count == 0U ||
+        count > CLIP_CAL_MAX_RANGES ||
+        address_width != 4U) {
+        set_last_error_text("Unsupported ECHO calibration descriptor layout.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    starts_off = 8U;
+    allocated_width_off = starts_off + ((size_t)count * 4U);
+    if (allocated_width_off + 2U > data_len) {
+        set_last_error_text("Truncated ECHO calibration descriptor.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    allocated_width = legacy_load_be16(data + allocated_width_off);
+    if (allocated_width != 4U) {
+        set_last_error_text("Unsupported ECHO allocated-length width.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    allocated_off = allocated_width_off + 2U;
+    used_width_off = allocated_off + ((size_t)count * 4U);
+    if (used_width_off + 2U > data_len) {
+        set_last_error_text("Truncated ECHO allocated-length table.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    used_width = legacy_load_be16(data + used_width_off);
+    if (used_width != 4U) {
+        set_last_error_text("Unsupported ECHO used-length width.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    used_off = used_width_off + 2U;
+    required = used_off + ((size_t)count * 4U);
+    if (required > data_len) {
+        set_last_error_text("Truncated ECHO used-length table.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    map->range_count = count;
+    for (i = 0U; i < count; ++i) {
+        map->ranges[i].address =
+            legacy_load_be32(data + starts_off + ((size_t)i * 4U));
+        allocated_length =
+            legacy_load_be32(data + allocated_off + ((size_t)i * 4U));
+        used_length =
+            legacy_load_be32(data + used_off + ((size_t)i * 4U));
+
+        map->ranges[i].auxiliary = allocated_length;
+        map->ranges[i].length = used_length;
+
+        if (used_length == (clip_u32)0 ||
+            used_length > allocated_length ||
+            map->ranges[i].address >
+            (clip_u32)0xffffffffUL - used_length) {
+            set_last_error_text("Invalid ECHO calibration memory range.");
+            return PULL_ERR_PROTOCOL;
+        }
+    }
+
+    return PULL_OK;
+}
+
+static int
+echo_collect_metadata(struct pull_ctx *ctx, struct echo_meta *meta)
+{
+    clip_u8 data[32];
+    size_t data_len;
+    clip_u32 part_number;
+    unsigned int interface_level;
+    int rc;
+
+    if (ctx == NULL || meta == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    memset(meta, 0, sizeof(*meta));
+
+#define ECHO_READ(id_, len_) do { \
+        data_len = 0U; \
+        rc = legacy_read_parameter(ctx, \
+                                   (id_), \
+                                   (len_), \
+                                   data, \
+                                   sizeof(data), \
+                                   &data_len, \
+                                   CLIP_TIMEOUT_MS); \
+        if (rc != PULL_OK) return rc; \
+        if (data_len != (size_t)(len_)) { \
+            set_last_error_text("Short ECHO metadata reply."); \
+            return PULL_ERR_PROTOCOL; \
+        } \
+    } while (0)
+
+    ECHO_READ(0x0019U, 4U);
+    format_hex_bytes(meta->calibration_version,
+                     sizeof(meta->calibration_version),
+                     data,
+                     4U);
+
+    ECHO_READ(0x0000U, 2U);
+    copy_trimmed_ascii(meta->module_id,
+                       sizeof(meta->module_id),
+                       data,
+                       2U);
+
+    ECHO_READ(0x0043U, 3U);
+    copy_trimmed_ascii(meta->product_id,
+                       sizeof(meta->product_id),
+                       data,
+                       3U);
+
+    ECHO_READ(0x0001U, 4U);
+    part_number = legacy_load_be32(data);
+    sprintf(meta->module_part_number, "%lu", (unsigned long)part_number);
+
+    ECHO_READ(0x0044U, 16U);
+    copy_trimmed_ascii(meta->market_id,
+                       sizeof(meta->market_id),
+                       data,
+                       16U);
+
+    ECHO_READ(0x002dU, 2U);
+    interface_level = legacy_load_be16(data);
+    sprintf(meta->interface_level, "%u", interface_level);
+
+    ECHO_READ(0x0046U, 4U);
+    format_hex_bytes(meta->start_boot_loader_version,
+                     sizeof(meta->start_boot_loader_version),
+                     data,
+                     4U);
+
+    ECHO_READ(0x0047U, 4U);
+    format_hex_bytes(meta->end_boot_loader_version,
+                     sizeof(meta->end_boot_loader_version),
+                     data,
+                     4U);
+
+    ECHO_READ(0x0028U, 8U);
+    copy_trimmed_ascii(meta->engine_id,
+                       sizeof(meta->engine_id),
+                       data,
+                       8U);
+
+    ECHO_READ(0x0029U, 8U);
+    copy_trimmed_ascii(meta->fuel_system_id,
+                       sizeof(meta->fuel_system_id),
+                       data,
+                       8U);
+
+    ECHO_READ(0x002aU, 12U);
+    copy_trimmed_ascii(meta->byte_order,
+                       sizeof(meta->byte_order),
+                       data,
+                       12U);
+
+    ECHO_READ(0x002bU, 1U);
+    sprintf(meta->address_length, "%u", (unsigned int)data[0]);
+
+    ECHO_READ(0x002cU, 5U);
+    copy_trimmed_ascii(meta->cpp_data_link,
+                       sizeof(meta->cpp_data_link),
+                       data,
+                       5U);
+
+#undef ECHO_READ
+
+    if (strcmp(meta->product_id, "ECH") != 0 ||
+        strcmp(meta->engine_id, "ECHO") != 0) {
+        set_last_error_text("Legacy metadata does not identify an ECH/ECHO ECM.");
+        return PULL_ERR_PROTOCOL;
+    }
+
     return PULL_OK;
 }
 
@@ -1892,9 +2315,10 @@ allocate_image(const struct clip_cal_map *map, struct pull_image *image)
 
 
 static int
-elite_pull_memory_ranges(struct pull_ctx *ctx,
-                         const struct clip_cal_map *map,
-                         struct pull_image *image)
+legacy_pull_memory_ranges(struct pull_ctx *ctx,
+                          const struct clip_cal_map *map,
+                          struct pull_image *image,
+                          const char *platform_name)
 {
     unsigned int i;
     clip_u32 offset;
@@ -1911,7 +2335,7 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
 
     total = clip_cal_total_size(map);
     if (total == 0U) {
-        set_last_error_text("ELITE II descriptor contains no calibration bytes.");
+        set_last_error_text("Legacy descriptor contains no calibration bytes.");
         return PULL_ERR_PROTOCOL;
     }
 
@@ -1921,11 +2345,11 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
 
         while (offset < map->ranges[i].length) {
             remaining = map->ranges[i].length - offset;
-            chunk = ELITE_II_BLOCK_SIZE;
+            chunk = LEGACY_BLOCK_SIZE;
             if ((clip_u32)chunk > remaining)
                 chunk = (unsigned int)remaining;
 
-            rc = elite_read_memory(ctx,
+            rc = legacy_read_memory(ctx,
                                    map->ranges[i].address + offset,
                                    chunk,
                                    image->ranges[i].data + (size_t)offset);
@@ -1940,7 +2364,8 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
                 percent = 92;
 
             sprintf(msg,
-                    "Reading ENI/ELITE II calibration: %lu / %lu bytes",
+                    "Reading %s calibration: %lu / %lu bytes",
+                    platform_name != NULL ? platform_name : "legacy",
                     (unsigned long)completed,
                     (unsigned long)total);
             report_progress(ctx, percent, msg);
@@ -2427,6 +2852,204 @@ write_elite_ccal(const char *path, const struct pull_image *image)
     return PULL_OK;
 }
 
+
+static int
+write_echo_ccal(const char *path,
+                const struct echo_meta *meta,
+                const struct pull_image *image)
+{
+    FILE *fp;
+    SYSTEMTIME st;
+    char creation_date[16];
+    unsigned int order[CLIP_CAL_MAX_RANGES];
+    unsigned int order_count;
+    unsigned int i;
+    unsigned int j;
+    unsigned int tmp_index;
+    unsigned int range_index;
+    clip_u32 offset;
+    clip_u32 address;
+    unsigned int high;
+    unsigned int current_high;
+    unsigned int low;
+    unsigned int room;
+    unsigned int count;
+    clip_u8 ela[2];
+    clip_u8 crc_placeholder[4];
+    int ok;
+
+    if (path == NULL || meta == NULL || image == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    GetLocalTime(&st);
+    sprintf(creation_date,
+            "%02u%02u%02u",
+            (unsigned int)st.wMonth,
+            (unsigned int)st.wDay,
+            (unsigned int)(st.wYear % 100U));
+
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        set_last_error_text("Unable to create destination ECHO .ccal file.");
+        return PULL_ERR_FILE;
+    }
+
+    ok = 1;
+
+    /*
+     * ECHO files use the four-character whole-file CRC form handled by
+     * ccal_set_cal_file_crc().  Start with 0000 and patch it after the file
+     * is complete.
+     */
+    if (fputs("0000\r\n", fp) == EOF)
+        ok = 0;
+
+    if (ok && fputs("[Header Records]\r\n", fp) == EOF)
+        ok = 0;
+
+    if (ok && fprintf(fp,
+        "CalibrationVersion=%s\r\n"
+        "ModuleID=%s\r\n"
+        "ProductID=%s\r\n"
+        "ModulePN=%s\r\n",
+        meta->calibration_version,
+        meta->module_id,
+        meta->product_id,
+        meta->module_part_number) < 0)
+        ok = 0;
+
+    if (ok && fprintf(fp,
+        "MarketID=%s\r\n"
+        "InterfaceLevel=%s\r\n"
+        "CreationDate=%s\r\n",
+        meta->market_id,
+        meta->interface_level,
+        creation_date) < 0)
+        ok = 0;
+
+    if (ok && fprintf(fp,
+        "StartBootLoaderVersion=%s\r\n"
+        "EndBootLoaderVersion=%s\r\n"
+        "EngineID=%s\r\n"
+        "FuelSystemID=%s\r\n",
+        meta->start_boot_loader_version,
+        meta->end_boot_loader_version,
+        meta->engine_id,
+        meta->fuel_system_id) < 0)
+        ok = 0;
+
+    if (ok && fprintf(fp,
+        "ByteOrder=%s\r\n"
+        "AddressLength=%s\r\n"
+        "CPPDataLink=%s\r\n",
+        meta->byte_order,
+        meta->address_length,
+        meta->cpp_data_link) < 0)
+        ok = 0;
+
+    if (ok && fprintf(fp,
+        "FileDescriptor=Copyright %04u Cummins Inc. - "
+        "Cummins Confidential - Phase 01.05.02.02\r\n",
+        (unsigned int)st.wYear) < 0)
+        ok = 0;
+
+    if (ok && fputs("[Data Records]\r\n", fp) == EOF)
+        ok = 0;
+
+    crc_placeholder[0] = 0x00U;
+    crc_placeholder[1] = 0x00U;
+    crc_placeholder[2] = 0x00U;
+    crc_placeholder[3] = 0x00U;
+
+    if (ok && !write_ihex_record(fp,
+                                 0xffU,
+                                 0U,
+                                 crc_placeholder,
+                                 4U))
+        ok = 0;
+
+    order_count = image->range_count;
+    if (order_count > CLIP_CAL_MAX_RANGES)
+        ok = 0;
+
+    for (i = 0U; i < order_count; ++i)
+        order[i] = i;
+
+    for (i = 0U; i < order_count; ++i) {
+        for (j = i + 1U; j < order_count; ++j) {
+            if (image->ranges[order[j]].address <
+                image->ranges[order[i]].address) {
+                tmp_index = order[i];
+                order[i] = order[j];
+                order[j] = tmp_index;
+            }
+        }
+    }
+
+    /*
+     * The ECH reference file emits a type-04 record even for bank zero and
+     * uses 16-byte data rows.
+     */
+    current_high = 0xffffffffU;
+
+    for (i = 0U; ok && i < order_count; ++i) {
+        range_index = order[i];
+        offset = (clip_u32)0;
+
+        while (offset < image->ranges[range_index].length) {
+            address = image->ranges[range_index].address + offset;
+            high = (unsigned int)((address >> 16) & 0xffffUL);
+            low = (unsigned int)(address & 0xffffUL);
+
+            if (high != current_high) {
+                ela[0] = (clip_u8)((high >> 8) & 0xffU);
+                ela[1] = (clip_u8)(high & 0xffU);
+                if (!write_ihex_record(fp, 0x04U, 0U, ela, 2U)) {
+                    ok = 0;
+                    break;
+                }
+                current_high = high;
+            }
+
+            room = 0x10000U - low;
+            count = 16U;
+            if ((clip_u32)count >
+                image->ranges[range_index].length - offset) {
+                count = (unsigned int)
+                    (image->ranges[range_index].length - offset);
+            }
+            if (count > room)
+                count = room;
+
+            if (!write_ihex_record(
+                    fp,
+                    0x00U,
+                    low,
+                    image->ranges[range_index].data + (size_t)offset,
+                    count)) {
+                ok = 0;
+                break;
+            }
+
+            offset += (clip_u32)count;
+        }
+    }
+
+    if (ok && !write_ihex_record(fp, 0x01U, 0U, NULL, 0U))
+        ok = 0;
+
+    if (fclose(fp) != 0)
+        ok = 0;
+
+    if (!ok) {
+        DeleteFileA(path);
+        set_last_error_text("Failed while writing destination ECHO .ccal file.");
+        return PULL_ERR_FILE;
+    }
+
+    return PULL_OK;
+}
+
 static int
 write_ihex_image(FILE *fp, const struct pull_image *image)
 {
@@ -2878,15 +3501,17 @@ rp1210_pull_ccal(const char *api_name,
     struct clip_cal_map map;
     struct pull_image image;
     struct pull_meta meta;
+    struct echo_meta echo_meta;
     clip_u8 sequence;
     int rc;
     int clip_open;
-    int elite_open;
+    int legacy_open;
 
     memset(&ctx, 0, sizeof(ctx));
     memset(&map, 0, sizeof(map));
     memset(&image, 0, sizeof(image));
     memset(&meta, 0, sizeof(meta));
+    memset(&echo_meta, 0, sizeof(echo_meta));
 
     clear_last_error();
 
@@ -2902,7 +3527,7 @@ rp1210_pull_ccal(const char *api_name,
     ctx.wire_slot = 0U;
     ctx.progress = progress;
     clip_open = 0;
-    elite_open = 0;
+    legacy_open = 0;
 
     report_progress(&ctx, 0, "Opening RP1210/J1939 transport...");
     rc = open_rp1210_transport(&ctx,
@@ -2916,6 +3541,70 @@ rp1210_pull_ccal(const char *api_name,
 
     report_progress(&ctx, 2, "Connected and J1939 tool address claimed.");
 
+    report_progress(&ctx, 3, "Probing legacy ECH/ECHO identification...");
+    rc = echo_probe(&ctx);
+    if (rc == PULL_DETECTED_ECHO) {
+        clear_last_error();
+        report_progress(&ctx, 4, "ECH/ECHO platform detected.");
+
+        report_progress(&ctx, 6, "Opening ECHO calibration transfer...");
+        rc = legacy_transfer_control(&ctx, 0x04U);
+        if (rc != PULL_OK)
+            goto done;
+        legacy_open = 1;
+
+        report_progress(&ctx, 8, "Reading ECHO calibration descriptor...");
+        rc = echo_get_descriptor(&ctx, &map);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 10, "Reading ECHO calibration metadata...");
+        rc = echo_collect_metadata(&ctx, &echo_meta);
+        if (rc != PULL_OK)
+            goto done;
+
+        rc = allocate_image(&map, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 12, "Reading ECH/ECHO calibration memory...");
+        rc = legacy_pull_memory_ranges(&ctx,
+                                       &map,
+                                       &image,
+                                       "ECH/ECHO");
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 93, "Closing ECHO calibration transfer...");
+        rc = legacy_transfer_control(&ctx, 0x05U);
+        if (rc != PULL_OK)
+            goto done;
+        legacy_open = 0;
+
+        report_progress(&ctx, 95, "Writing ECHO .ccal file...");
+        rc = write_echo_ccal(out_path, &echo_meta, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 98, "Finalizing ECHO calibration CRC...");
+        if (!ccal_set_cal_file_crc(out_path) ||
+            !ccal_check_cal_file_crc(out_path) ||
+            !ccal_check_header_file_crc(out_path) ||
+            !ccal_check_file_crc(out_path)) {
+            set_last_error_text(
+                "ECHO calibration was pulled, but calibration CRC finalization failed.");
+            rc = PULL_ERR_CRC;
+            goto done;
+        }
+
+        report_progress(&ctx, 100, "ECH/ECHO calibration saved and CRC verified.");
+        clear_last_error();
+        rc = PULL_OK;
+        goto done;
+    }
+    if (rc != PULL_OK)
+        goto done;
+
     rc = clip_authenticate(&ctx);
     if (rc == PULL_DETECTED_ELITE_II) {
         /*
@@ -2926,10 +3615,10 @@ rp1210_pull_ccal(const char *api_name,
         report_progress(&ctx, 4, "ENI/ELITE II platform detected.");
 
         report_progress(&ctx, 6, "Opening ELITE II calibration transfer...");
-        rc = elite_transfer_control(&ctx, 0x04U);
+        rc = legacy_transfer_control(&ctx, 0x04U);
         if (rc != PULL_OK)
             goto done;
-        elite_open = 1;
+        legacy_open = 1;
 
         report_progress(&ctx, 8, "Reading ELITE II calibration descriptor...");
         rc = elite_get_descriptor(&ctx, &map);
@@ -2941,15 +3630,18 @@ rp1210_pull_ccal(const char *api_name,
             goto done;
 
         report_progress(&ctx, 12, "Reading ENI/ELITE II calibration memory...");
-        rc = elite_pull_memory_ranges(&ctx, &map, &image);
+        rc = legacy_pull_memory_ranges(&ctx,
+                                       &map,
+                                       &image,
+                                       "ENI/ELITE II");
         if (rc != PULL_OK)
             goto done;
 
         report_progress(&ctx, 93, "Closing ELITE II calibration transfer...");
-        rc = elite_transfer_control(&ctx, 0x05U);
+        rc = legacy_transfer_control(&ctx, 0x05U);
         if (rc != PULL_OK)
             goto done;
-        elite_open = 0;
+        legacy_open = 0;
 
         report_progress(&ctx, 95, "Writing legacy ENI .ccal file...");
         rc = write_elite_ccal(out_path, &image);
@@ -3040,8 +3732,8 @@ rp1210_pull_ccal(const char *api_name,
     clear_last_error();
 
  done:
-    if (elite_open)
-        (void)elite_transfer_control(&ctx, 0x05U);
+    if (legacy_open)
+        (void)legacy_transfer_control(&ctx, 0x05U);
     if (clip_open)
         (void)clip_send_close(&ctx);
     close_rp1210_transport(&ctx);
@@ -3107,6 +3799,17 @@ rp1210_upload_ccal(const char *api_name,
         goto done;
 
     report_progress(&ctx, 4, "Connected and J1939 tool address claimed.");
+
+    report_progress(&ctx, 5, "Checking for ECH/ECHO platform...");
+    rc = echo_probe(&ctx);
+    if (rc == PULL_DETECTED_ECHO) {
+        set_last_error_text(
+            "ECH/ECHO download is supported, but ECHO programming is disabled until a programming trace is independently validated.");
+        rc = PULL_ERR_UPLOAD;
+        goto done;
+    }
+    if (rc != PULL_OK)
+        goto done;
 
     rc = clip_authenticate(&ctx);
     if (rc == PULL_DETECTED_ELITE_II) {
