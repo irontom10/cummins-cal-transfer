@@ -374,19 +374,27 @@ rp1210_connect_j1939(struct pull_ctx *ctx, int device_id, int baud)
     short client;
     short rc;
     int kbps;
+    int auto_baud;
 
     if (ctx == NULL)
         return PULL_ERR_ARGUMENT;
 
-    if (baud == 125000 || baud == 250000 || baud == 500000 || baud == 1000000)
+    auto_baud = (baud == 0);
+
+    if (auto_baud) {
+        strcpy(protocol, "J1939:Baud=Auto");
+        protocol_alt[0] = '\0';
+    }
+    else if (baud == 125000 || baud == 250000 ||
+             baud == 500000 || baud == 1000000) {
         kbps = baud / 1000;
+        sprintf(protocol, "J1939:Baud=%d", kbps);
+        sprintf(protocol_alt, "J1939:Baud=%d", baud);
+    }
     else {
         set_last_error_text("Unsupported J1939 baud rate.");
         return PULL_ERR_ARGUMENT;
     }
-
-    sprintf(protocol, "J1939:Baud=%d", kbps);
-    sprintf(protocol_alt, "J1939:Baud=%d", baud);
 
     client = ctx->api.client_connect(NULL,
                                       (short)device_id,
@@ -394,7 +402,22 @@ rp1210_connect_j1939(struct pull_ctx *ctx, int device_id, int baud)
                                       0L,
                                       0L,
                                       0);
-    if (client < 0 || client > 127) {
+
+    /*
+     * Auto means Auto.  Do not fall back to bare "J1939" here because a
+     * vendor DLL may interpret that as its configured/default fixed bitrate.
+     * If the VDA cannot honor Baud=Auto, fail instead of silently connecting
+     * at an unknown rate.
+     */
+    if (auto_baud && (client < 0 || client > 127)) {
+        set_rp1210_error(
+            ctx,
+            "RP1210_ClientConnect with J1939:Baud=Auto failed",
+            client);
+        return PULL_ERR_CONNECT;
+    }
+
+    if (!auto_baud && (client < 0 || client > 127)) {
         client = ctx->api.client_connect(NULL,
                                           (short)device_id,
                                           protocol_alt,
@@ -403,7 +426,7 @@ rp1210_connect_j1939(struct pull_ctx *ctx, int device_id, int baud)
                                           0);
     }
 
-    if (client < 0 || client > 127) {
+    if (!auto_baud && (client < 0 || client > 127)) {
         client = ctx->api.client_connect(NULL,
                                           (short)device_id,
                                           "J1939",
