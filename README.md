@@ -69,7 +69,8 @@ build/
 ├── tools/
 │   └── crc_call.exe
 ├── native/
-│   └── rp1210scan.dll
+│   ├── rp1210scan.dll
+│   └── ctconfig.dll
 ├── obj/
 └── dotnet/
 ```
