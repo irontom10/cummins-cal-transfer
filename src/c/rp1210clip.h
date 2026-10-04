@@ -16,6 +16,7 @@ typedef void (RP1210_CALL *RP1210_PROGRESS_CALLBACK)(int percent,
  * api        RP1210 API implementation name, e.g. "NULN3R32".
  * device_id  RP1210 device ID from rp1210_get().
  * baud       J1939 baud in bits/s: 125000, 250000, 500000, 1000000.
+ *            Use 0 for RP1210 automatic bitrate detection (J1939:Baud=Auto).
  * tool_sa    J1939 source address used by the tool (normally 0xFA).
  * ecm_sa     ECM source/destination address (normally 0x00).
  * out_path   Destination .ccal path.
