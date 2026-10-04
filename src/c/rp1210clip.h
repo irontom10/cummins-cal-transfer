@@ -34,8 +34,8 @@ RP1210_EXPORT int RP1210_CALL rp1210_pull_ccal(
     RP1210_PROGRESS_CALLBACK progress
 );
 
-/* Verify and program a Cummins .ccal file into the ECM.  The native
- * implementation verifies the Cummins file CRC before opening the adapter. */
+/* Verify and program a .ccal file into the ECM.  The native
+ * implementation verifies the calibration file CRC before opening the adapter. */
 RP1210_EXPORT int RP1210_CALL rp1210_upload_ccal(
     const char *api,
     int device_id,

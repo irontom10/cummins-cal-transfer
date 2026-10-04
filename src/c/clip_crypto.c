@@ -2,7 +2,7 @@
  * clip_crypto.c
  *
  * C89 implementation of the CLIP session primitives recovered from
- * PCLWrapper.dll.
+ * reference implementation.
  *
  * Implements:
  *   - 01 01 00 00 seed request
@@ -161,7 +161,7 @@ clip_build_tool_context(clip_u8 out[CLIP_TOOL_CONTEXT_SIZE],
 }
 
 /*
- * PCLWrapper.dll level-key derivation.
+ * reference implementation level-key derivation.
  *
  * The DLL starts with 16 bytes of FF, reverse-copies the four seed bytes
  * into the first four positions, then XORs that 16-byte mask with one of

@@ -1,4 +1,4 @@
-#include "cummins_crc.h"
+#include "ccal_crc.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -17,7 +17,7 @@ static unsigned short step(unsigned short crc, unsigned int c)
     return (unsigned short)((((unsigned int)crc >> 7) & 0x01FEU) ^ t);
 }
 
-unsigned short cummins_crc(unsigned short crc, const unsigned char *s)
+unsigned short ccal_crc(unsigned short crc, const unsigned char *s)
 {
     while (*s) {
         if (*s >= 0x20U) crc = step(crc, *s);
@@ -94,7 +94,7 @@ static int calc(const char *file, int alt, int check,
         *stored = swap16(v);
         memcpy(suffix, first + 7, 10U);
         suffix[10] = '\0';
-        *crc = cummins_crc(*crc, (const unsigned char *)suffix);
+        *crc = ccal_crc(*crc, (const unsigned char *)suffix);
     }
 
     skip = 0;
@@ -153,27 +153,27 @@ static int mode(const char *file, int alt, int check, int set)
     return write_first(file, out, strlen(out));
 }
 
-int cummins_check_cal_file_crc(const char *f)
+int ccal_check_cal_file_crc(const char *f)
 {
     return mode(f, 0, 1, 0) || mode(f, 1, 1, 0);
 }
 
-int cummins_check_header_file_crc(const char *f)
+int ccal_check_header_file_crc(const char *f)
 {
     return mode(f, 0, 1, 0);
 }
 
-int cummins_set_cal_file_crc(const char *f)
+int ccal_set_cal_file_crc(const char *f)
 {
     return mode(f, 0, 0, 1) || mode(f, 1, 0, 1);
 }
 
-int cummins_check_file_crc(const char *f)
+int ccal_check_file_crc(const char *f)
 {
     return mode(f, 0, 1, 0);
 }
 
-int cummins_set_file_crc(const char *f)
+int ccal_set_file_crc(const char *f)
 {
     return mode(f, 0, 0, 1);
 }

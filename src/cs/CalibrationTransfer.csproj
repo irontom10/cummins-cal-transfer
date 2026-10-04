@@ -13,7 +13,7 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
 
-    <AssemblyName>CumminsCalTransfer</AssemblyName>
+    <AssemblyName>CalibrationTransfer</AssemblyName>
     <ApplicationIcon>caltool.ico</ApplicationIcon>
     <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
 

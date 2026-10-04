@@ -4,8 +4,8 @@
 /*
  * clip_cal.h
  *
- * C89 helpers for Cummins CLIP calibration readback and calibration
- * programming procedures observed in the supplied Calterm recordings.
+ * C89 helpers for CLIP calibration readback and calibration
+ * programming procedures observed in the supplied reference tool recordings.
  *
  * This module operates on CLIP application PDUs only.  It intentionally does
  * not implement the surrounding J1939 Proprietary-A / transport framing.
@@ -54,7 +54,7 @@
 #define CLIP_CAL_PTR_REQUEST_SIZE       6U
 #define CLIP_CAL_END_REQUEST_SIZE       4U
 
-/* Calterm used 0x03E8-byte reads for the captured main readback. */
+/* reference tool used 0x03E8-byte reads for the captured main readback. */
 #define CLIP_CAL_DEFAULT_CHUNK_SIZE     1000U
 
 /* Conservative parser capacity; the supplied descriptor contains four. */
@@ -287,12 +287,12 @@ void clip_cal_options_init(clip_cal_options *options);
 unsigned int clip_cal_crc16_kermit(const unsigned char *data,
                                    unsigned long length);
 
-/* Verify the Cummins file-level CRC token before any programming traffic. */
+/* Verify the calibration file-level CRC token before any programming traffic. */
 int clip_cal_verify_ccal_crc(const char *filename);
 
 /*
- * Program a parsed Cummins .ccal over the raw loader protocol observed in the
- * Calterm upload capture:
+ * Program a parsed .ccal over the raw loader protocol observed in the
+ * reference tool upload capture:
  *
  *   02                    enter transfer phase
  *   44 00 18 04 <len32>   announce region length including CRC16

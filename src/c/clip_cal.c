@@ -2,12 +2,12 @@
  * clip_cal.c
  *
  * C89 implementation of the CLIP calibration-upload helpers declared in
- * clip_cal.h.  The packet layouts are derived from the supplied Calterm
+ * clip_cal.h.  The packet layouts are derived from the supplied reference tool
  * recording and cross-checked against the generated .ccal Intel-HEX payload.
  */
 
 #include "clip_cal.h"
-#include "cummins_crc.h"
+#include "ccal_crc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -768,13 +768,13 @@ int clip_cal_verify_ccal_crc(const char *filename)
         return 0;
 
     /* A normal CCAL uses the four-hex-character first-line token.  Require
-       all public checks supplied by the recovered Cummins CRC implementation
+       all public checks supplied by the recovered calibration CRC implementation
        to agree before a single programming packet is emitted. */
-    if (!cummins_check_cal_file_crc(filename))
+    if (!ccal_check_cal_file_crc(filename))
         return 0;
-    if (!cummins_check_header_file_crc(filename))
+    if (!ccal_check_header_file_crc(filename))
         return 0;
-    if (!cummins_check_file_crc(filename))
+    if (!ccal_check_file_crc(filename))
         return 0;
     return 1;
 }
@@ -1087,7 +1087,7 @@ int clip_cal_send_ccal(const char *filename,
     }
 
     /* Hard safety gate: never enter programming mode with a CCAL whose
-       Cummins file-level CRC token does not validate. */
+       calibration file-level CRC token does not validate. */
     if (!clip_cal_verify_ccal_crc(filename)) {
         return CLIP_CAL_ERR_CRC;
     }
@@ -1210,7 +1210,7 @@ const char *clip_cal_strerror(int code)
     case CLIP_CAL_ERR_ACK:
         return "matching ECM completion response was not received";
     case CLIP_CAL_ERR_CRC:
-        return "Cummins CCAL file CRC verification failed";
+        return "CCAL file CRC verification failed";
     default:
         return "unknown clip_cal error";
     }

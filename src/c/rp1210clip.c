@@ -1,14 +1,14 @@
 /*
  * rp1210clip.c
  *
- * Windows/RP1210 transport glue for the recovered Cummins CLIP session,
+ * Windows/RP1210 transport glue for the recovered CLIP session,
  * calibration upload procedure, and .ccal writer.
  *
  * The CLIP crypto and application-PDU logic intentionally lives in
  * clip_crypto.c and clip_cal.c.  This file only adds:
  *   - dynamic RP1210 loading / J1939 connection
  *   - the observed CLIP/J1939 outer envelope
- *   - session authentication using the observed Calterm tool context
+ *   - session authentication using the observed reference tool tool context
  *   - memory-range upload
  *   - compatibility-header + Intel-HEX .ccal output
  *
@@ -24,7 +24,7 @@
 #include "rp1210clip.h"
 #include "clip_crypto.h"
 #include "clip_cal.h"
-#include "cummins_crc.h"
+#include "ccal_crc.h"
 
 #define CLIP_J1939_PGN                 0x00ef00UL
 #define CLIP_J1939_PRIORITY            6U
@@ -62,7 +62,7 @@
 #define PULL_ERR_UPLOAD                 -112
 
 /*
- * Tool-context bytes from the supplied 2026-10-03 Calterm capture.
+ * Tool-context bytes from the supplied 2026-10-03 reference tool capture.
  *
  * These are kept as literal protocol values.  The ParamID semantics are not
  * required here; clip_crypto.c only needs to reproduce the verified 51-byte
@@ -779,7 +779,7 @@ clip_exchange(struct pull_ctx *ctx,
          * Once the guaranteed application channel is open, byte 6 is the
          * application sequence number, so a perfectly valid positive reply
          * for sequence 0x05 is also "01 05 ...".  The old global check
-         * therefore misclassified Calterm preflight sequence 0x05 as a
+         * therefore misclassified reference tool preflight sequence 0x05 as a
          * refused session.
          *
          * Restrict the refusal interpretation to the two handshake exchanges
@@ -799,7 +799,7 @@ clip_exchange(struct pull_ctx *ctx,
         /*
          * Calibration/application negative response.  The live ECM returned
          *     03 00 00 07
-         * when we tried to enter calibration mode before Calterm's first
+         * when we tried to enter calibration mode before reference tool's first
          * post-authentication status query.  Treat service 0x03 as a real
          * transaction result instead of ignoring it until the read timeout.
          */
@@ -1096,9 +1096,9 @@ cal_query_discard(struct pull_ctx *ctx,
 }
 
 /*
- * Calterm probes 0x002282 three times during connection setup.  The supplied
+ * reference tool probes 0x002282 three times during connection setup.  The supplied
  * recordings show service 0x03 negative replies for all three probes, and
- * Calterm continues.  Accept either a normal positive reply or that negative
+ * reference tool continues.  Accept either a normal positive reply or that negative
  * transaction result, but still require the matching application sequence.
  */
 static int
@@ -1212,7 +1212,7 @@ cal_enter_0b_state(struct pull_ctx *ctx,
 }
 
 /*
- * Exact seven-item multi-query observed in both supplied Calterm recordings.
+ * Exact seven-item multi-query observed in both supplied reference tool recordings.
  * Keep the item layout literal until its per-item selector byte semantics are
  * proven from the serializer.
  */
@@ -1264,13 +1264,13 @@ cal_preflight_multi_query(struct pull_ctx *ctx, clip_u8 *sequence)
 }
 
 /*
- * Reproduce the application-level Calterm preflight immediately following
+ * Reproduce the application-level reference tool preflight immediately following
  * CLIP authentication.  The two supplied recordings agree through sequence
  * 0x11.  The calibration-upload recording then performs 0x2287, 0x2882 and
  * two final 0x2226 polls before entering 0x0011 at sequence 0x16.
  */
 static int
-cal_run_calterm_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_run_protocol_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
 {
     int rc;
 
@@ -1293,7 +1293,7 @@ cal_run_calterm_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
     if (rc != PULL_OK)
         return rc;
 
-    /* Calterm waits while other connection setup work runs. */
+    /* reference tool waits while other connection setup work runs. */
     Sleep(250);
 
     PREFLIGHT_QUERY(0x002226UL); /* seq 05 */
@@ -1335,7 +1335,7 @@ cal_run_calterm_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
 
 /* Upload-specific preflight.  It is identical to the proven readback
  * preflight through sequence 0x11, then follows the ordering in the supplied
- * Calterm programming capture for sequences 0x12..0x15. */
+ * reference tool programming capture for sequences 0x12..0x15. */
 static int
 cal_run_upload_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
 {
@@ -1673,7 +1673,7 @@ collect_metadata(struct pull_ctx *ctx,
         SYSTEMTIME st;
         GetLocalTime(&st);
         sprintf(meta->file_descriptor,
-                "Copyright %04u Cummins Inc. - Cummins Confidential - "
+                "Copyright %04u - Generated Calibration Data - "
                 "Phase 22.60.70.02 - GTIS4.5",
                 (unsigned int)st.wYear);
     }
@@ -1938,7 +1938,7 @@ pull_memory_ranges(struct pull_ctx *ctx,
             /*
              * CLIP guaranteed-transfer ACK/window state.
              *
-             * The Calterm capture proves that byte 4 of the next outbound
+             * The reference tool capture proves that byte 4 of the next outbound
              * guaranteed message carries the number of 16-byte transport
              * blocks occupied by the previous inbound logical reply.  For a
              * memory-read positive reply the logical wire size is:
@@ -1970,7 +1970,7 @@ pull_memory_ranges(struct pull_ctx *ctx,
             }
 
             /*
-             * Calterm leaves roughly one scheduler tick (~35 ms in the
+             * reference tool leaves roughly one scheduler tick (~35 ms in the
              * supplied recording) between completed 1000-byte reads.  Do
              * the same instead of issuing the next guaranteed read less than
              * a millisecond after the preceding reply.
@@ -2103,7 +2103,7 @@ collect_auxiliary(struct pull_ctx *ctx,
      * large compatibility table -- it is NOT the four-hex-digit .ccal token.
      * Keep the query as a best-effort cleanup/compatibility step.  The file
      * writer still starts with a 0000 placeholder; rp1210_pull_ccal() patches
-     * and verifies it with the recovered native Cummins CRC implementation
+     * and verifies it with the recovered native calibration CRC implementation
      * immediately after the file is closed.
      */
     {
@@ -2229,7 +2229,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
         return 0;
 
     /*
-     * Calterm's .ccal emits Intel-HEX runs in ascending flash-address order,
+     * reference tool's .ccal emits Intel-HEX runs in ascending flash-address order,
      * not descriptor-array order.  Sort only the tiny index list.
      */
     order_count = image->range_count;
@@ -2407,7 +2407,7 @@ write_ccal(const char *path,
 
 
 /* -------------------------------------------------------------------------
- * Calibration programming path recovered from the supplied Calterm upload
+ * Calibration programming path recovered from the supplied reference tool upload
  * recording.  The already-proven CLIP authentication/preflight is reused,
  * then we reproduce the additional transition into loader mode 0x0017.
  * ------------------------------------------------------------------------- */
@@ -2422,8 +2422,8 @@ cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
         if (rc != PULL_OK) return rc; \
     } while (0)
 
-    /* Sequence is 0x16 on entry after cal_run_calterm_preflight().  These
-       requests reproduce the final Calterm checks immediately before its
+    /* Sequence is 0x16 on entry after cal_run_protocol_preflight().  These
+       requests reproduce the final reference tool checks immediately before its
        0x000B -> 0x0017 programming transition. */
     UPLOAD_QUERY(0x002226UL); /* 16 */
     UPLOAD_QUERY(0x002285UL); /* 17 */
@@ -2459,7 +2459,7 @@ wait_for_ecm_clip_close(struct pull_ctx *ctx)
     size_t rx_len;
     int rc;
 
-    /* Calterm's ECM sends 81 05 04 01 FF FF FF FF FF after mode 0x0017.
+    /* reference tool's ECM sends 81 05 04 01 FF FF FF FF FF after mode 0x0017.
        Treat it as useful synchronization, but do not make upload depend on
        seeing it because different firmware may switch to the loader faster. */
     rc = j1939_read_payload(ctx, rx, sizeof(rx), &rx_len, 3000UL);
@@ -2507,7 +2507,7 @@ raw_wait_prefix(struct pull_ctx *ctx,
         clear_last_error();
     }
 
-    set_last_error_text("Timed out waiting for Cummins raw loader response.");
+    set_last_error_text("Timed out waiting for raw loader response.");
     return PULL_ERR_TIMEOUT;
 }
 
@@ -2704,9 +2704,9 @@ rp1210_pull_ccal(const char *api_name,
 
     sequence = 0x00U;
 
-    /* Reproduce the observed Calterm post-authentication preflight. */
-    report_progress(&ctx, 8, "Running Calterm CLIP preflight...");
-    rc = cal_run_calterm_preflight(&ctx, &sequence);
+    /* Reproduce the observed reference tool post-authentication preflight. */
+    report_progress(&ctx, 8, "Running reference tool CLIP preflight...");
+    rc = cal_run_protocol_preflight(&ctx, &sequence);
     if (rc != PULL_OK)
         goto done;
 
@@ -2754,11 +2754,11 @@ rp1210_pull_ccal(const char *api_name,
         goto done;
 
     report_progress(&ctx, 98, "Calibration data written; finalizing file CRC...");
-    if (!cummins_set_cal_file_crc(out_path) ||
-        !cummins_check_cal_file_crc(out_path) ||
-        !cummins_check_header_file_crc(out_path) ||
-        !cummins_check_file_crc(out_path)) {
-        set_last_error_text("Calibration was pulled, but native Cummins CRC finalization failed.");
+    if (!ccal_set_cal_file_crc(out_path) ||
+        !ccal_check_cal_file_crc(out_path) ||
+        !ccal_check_header_file_crc(out_path) ||
+        !ccal_check_file_crc(out_path)) {
+        set_last_error_text("Calibration was pulled, but native calibration CRC finalization failed.");
         rc = PULL_ERR_CRC;
         goto done;
     }
@@ -2809,11 +2809,11 @@ rp1210_upload_ccal(const char *api_name,
     /* Deliberately verify before opening the adapter.  A bad file therefore
        cannot generate even one programming packet on the vehicle network. */
     if (progress != NULL)
-        progress(0, "Verifying Cummins CCAL CRC...");
+        progress(0, "Verifying CCAL CRC...");
     crc_ok = clip_cal_verify_ccal_crc(ccal_path);
     if (!crc_ok) {
         set_last_error_text(
-            "Cummins CCAL CRC verification failed. No programming traffic was sent.");
+            "CCAL CRC verification failed. No programming traffic was sent.");
         return PULL_ERR_CRC;
     }
 
@@ -2844,7 +2844,7 @@ rp1210_upload_ccal(const char *api_name,
     clip_open = 1;
 
     sequence = 0x00U;
-    report_progress(&ctx, 10, "Running Calterm CLIP programming preflight...");
+    report_progress(&ctx, 10, "Running reference tool CLIP programming preflight...");
     rc = cal_run_upload_preflight(&ctx, &sequence);
     if (rc != PULL_OK)
         goto done;
@@ -2863,9 +2863,9 @@ rp1210_upload_ccal(const char *api_name,
     clip_open = 0;
     wait_for_ecm_clip_close(&ctx);
 
-    /* In the supplied Calterm upload recording the raw loader identification
+    /* In the supplied reference tool upload recording the raw loader identification
        begins about 11.5 seconds after the positive 0x0017 reply (roughly
-       10.5 seconds after Calterm's own close acknowledgement).  The five
+       10.5 seconds after reference tool's own close acknowledgement).  The five
        trailing bytes of that initiator-close packet are session-dependent
        and their serializer is not yet independently proven, so do not replay
        captured bytes from another session.  Instead allow the ECM the same
