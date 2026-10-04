@@ -1,0 +1,22 @@
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+
+# C build artifacts
+build/
+*.exe
+*.dll
+*.obj
+*.o
+*.pdb
+
+# Logs / captures
+*.log
+*.jlog
+
+# Temporary
+*.tmp
+*.bak

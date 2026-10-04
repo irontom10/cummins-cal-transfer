@@ -1,0 +1,8 @@
+LIBRARY rp1210scan
+EXPORTS
+    rp1210_refresh
+    rp1210_count
+    rp1210_get
+    rp1210_pull_ccal
+    rp1210_upload_ccal
+    rp1210_get_last_error
