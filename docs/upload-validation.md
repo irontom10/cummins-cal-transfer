@@ -27,6 +27,22 @@ clip_cal_send_ccal rc = -29 (CLIP_CAL_ERR_CRC)
 send callback count = 0
 ```
 
+## ECHO II / ELITE II safety block
+
+Programming ECHO II-era / ENI / ELITE II ECMs is intentionally disabled in
+`rp1210_upload_ccal()`.
+
+The controller-family probe may identify one of these ECMs for supported read
+operations, but the upload path aborts before the programming preflight or
+loader transition. The user is shown:
+
+> Sending config files to ECHO II-era ECMs is not supported due to potential
+> corruption of the ECM. If you know what you are doing, use the recommended
+> OEM software.
+
+This is an intentional safety barrier and must not be removed merely because
+download/read support is available.
+
 ## Raw programming stream
 
 The final `clip_cal_send_ccal()` output was compared request-for-request with a known-good reference trace from the initial transfer command through the final completion command.
