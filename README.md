@@ -30,8 +30,7 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Th
     │   ├── crc_call.c
     │   ├── rp1210clip.c/.h
     │   ├── rp1210scan.c/.h
-    │   └── rp1210scan.def
-    ├── config/
+    │   ├── rp1210scan.def
     │   ├── config_store.c/.h
     │   └── config_store.def
     └── cs/
