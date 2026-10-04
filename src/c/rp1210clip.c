@@ -61,6 +61,18 @@
 #define PULL_ERR_CRC                    -111
 #define PULL_ERR_UPLOAD                 -112
 
+/* Internal non-error result from the CLIP open probe. */
+#define PULL_DETECTED_ELITE_II            1
+
+/*
+ * ENI / ELITE II protocol values recovered from the supplied CM550/CM554
+ * calibration-transfer trace.  ELITE II uses raw Proprietary-A messages
+ * instead of the newer guaranteed CLIP application envelope.
+ */
+#define ELITE_II_DESCRIPTOR_ID       0x1238U
+#define ELITE_II_DESCRIPTOR_SIZE     0x003aU
+#define ELITE_II_BLOCK_SIZE          1000U
+
 /*
  * Tool-context bytes from the supplied 2026-10-03 reference tool capture.
  *
@@ -683,6 +695,20 @@ clip_send_open(struct pull_ctx *ctx)
                 ctx->session_id = 0x01U;
             return PULL_OK;
         }
+
+        /*
+         * ENI / ELITE II (CM550/CM554) rejects the guaranteed CLIP open with
+         *     0D 18 81 FF FF FF FF FF
+         * and then expects the older raw ELITE II services on the same
+         * Proprietary-A PGN.  Return a positive internal discriminator so the
+         * caller can switch protocols without treating this as a timeout.
+         */
+        if (reply_len >= 3U &&
+            reply[0] == 0x0dU &&
+            reply[1] == 0x18U &&
+            reply[2] == 0x81U) {
+            return PULL_DETECTED_ELITE_II;
+        }
     }
 }
 
@@ -994,6 +1020,335 @@ clip_authenticate(struct pull_ctx *ctx)
         }
     }
 
+    return PULL_OK;
+}
+
+
+static clip_u32
+elite_load_be32(const clip_u8 *p)
+{
+    clip_u32 v;
+
+    v = ((clip_u32)p[0] << 24);
+    v |= ((clip_u32)p[1] << 16);
+    v |= ((clip_u32)p[2] << 8);
+    v |= (clip_u32)p[3];
+    return v;
+}
+
+static unsigned int
+elite_load_be16(const clip_u8 *p)
+{
+    return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
+}
+
+static void
+elite_store_be32(clip_u8 *p, clip_u32 v)
+{
+    p[0] = (clip_u8)(v >> 24);
+    p[1] = (clip_u8)(v >> 16);
+    p[2] = (clip_u8)(v >> 8);
+    p[3] = (clip_u8)v;
+}
+
+static int
+elite_exchange(struct pull_ctx *ctx,
+               const clip_u8 *request,
+               size_t request_len,
+               clip_u8 expected_opcode,
+               clip_u8 *reply,
+               size_t reply_capacity,
+               size_t *reply_len,
+               unsigned long timeout_ms)
+{
+    clip_u8 incoming[CLIP_WIRE_MAX];
+    size_t incoming_len;
+    DWORD start;
+    DWORD now;
+    int rc;
+
+    if (ctx == NULL || request == NULL || request_len == 0U ||
+        reply == NULL || reply_len == NULL) {
+        return PULL_ERR_ARGUMENT;
+    }
+
+    rc = j1939_send_payload(ctx, request, request_len);
+    if (rc != PULL_OK)
+        return rc;
+
+    start = GetTickCount();
+    for (;;) {
+        now = GetTickCount();
+        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
+            break;
+
+        rc = j1939_read_payload(ctx,
+                                incoming,
+                                sizeof(incoming),
+                                &incoming_len,
+                                timeout_ms - (unsigned long)(DWORD)(now - start));
+        if (rc != PULL_OK)
+            return rc;
+
+        if (incoming_len >= 3U &&
+            incoming[0] == 0x0dU &&
+            incoming[2] == request[0]) {
+            char msg[160];
+            sprintf(msg,
+                    "ELITE II negative response to service %02X (reason %02X).",
+                    (unsigned int)request[0],
+                    (unsigned int)incoming[1]);
+            set_last_error_text(msg);
+            return PULL_ERR_PROTOCOL;
+        }
+
+        if (incoming_len == 0U || incoming[0] != expected_opcode)
+            continue;
+
+        if (incoming_len > reply_capacity) {
+            set_last_error_text("ELITE II response exceeds receive buffer.");
+            return PULL_ERR_PROTOCOL;
+        }
+
+        memcpy(reply, incoming, incoming_len);
+        *reply_len = incoming_len;
+        return PULL_OK;
+    }
+
+    set_last_error_text("Timed out waiting for ELITE II response from ECM.");
+    return PULL_ERR_TIMEOUT;
+}
+
+static int
+elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
+{
+    clip_u8 request[8];
+    clip_u8 reply[32];
+    size_t reply_len;
+    int rc;
+
+    request[0] = opcode;
+    request[1] = 0xfeU;
+    request[2] = 0xfeU;
+    request[3] = 0xffU;
+    request[4] = 0xffU;
+    request[5] = 0xffU;
+    request[6] = 0xffU;
+    request[7] = 0xffU;
+
+    rc = elite_exchange(ctx,
+                        request,
+                        sizeof(request),
+                        0x0cU,
+                        reply,
+                        sizeof(reply),
+                        &reply_len,
+                        CLIP_TIMEOUT_MS);
+    if (rc != PULL_OK)
+        return rc;
+
+    if (reply_len < 4U ||
+        reply[1] != opcode ||
+        reply[2] != 0xfeU ||
+        reply[3] != 0xfeU) {
+        set_last_error_text("Invalid ELITE II transfer-control acknowledgement.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    return PULL_OK;
+}
+
+static int
+elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
+{
+    clip_u8 request[8];
+    clip_u8 reply[CLIP_WIRE_MAX];
+    const clip_u8 *data;
+    size_t reply_len;
+    size_t data_len;
+    size_t starts_off;
+    size_t length_size_off;
+    size_t lengths_off;
+    size_t required;
+    unsigned int nested_len;
+    unsigned int count;
+    unsigned int address_size;
+    unsigned int length_size;
+    unsigned int i;
+    int rc;
+
+    if (ctx == NULL || map == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    memset(map, 0, sizeof(*map));
+
+    request[0] = 0x43U;
+    request[1] = (clip_u8)((ELITE_II_DESCRIPTOR_ID >> 8) & 0xffU);
+    request[2] = (clip_u8)(ELITE_II_DESCRIPTOR_ID & 0xffU);
+    request[3] = 0x00U;
+    request[4] = 0x00U;
+    request[5] = 0x00U;
+    request[6] = (clip_u8)ELITE_II_DESCRIPTOR_SIZE;
+    request[7] = 0xffU;
+
+    rc = elite_exchange(ctx,
+                        request,
+                        sizeof(request),
+                        0x44U,
+                        reply,
+                        sizeof(reply),
+                        &reply_len,
+                        CLIP_TIMEOUT_MS);
+    if (rc != PULL_OK)
+        return rc;
+
+    if (reply_len < 4U ||
+        reply[1] != request[1] ||
+        reply[2] != request[2] ||
+        reply[3] != request[6]) {
+        set_last_error_text("Invalid ELITE II calibration descriptor reply.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    data = reply + 4U;
+    data_len = reply_len - 4U;
+    if (data_len < 10U) {
+        set_last_error_text("ELITE II calibration descriptor is too short.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    /*
+     * CM550/CM554 descriptor 0x1238:
+     *   u16 payload_length
+     *   u16 flags
+     *   u16 range_count
+     *   u16 address_width (=4)
+     *   be32 start[range_count]
+     *   u16 length_width (=4)
+     *   be32 length[range_count]
+     *
+     * In the supplied ENI capture this describes six ranges which collapse to
+     * the three runs present in the resulting legacy .ccal:
+     * 00004004-00006000, 00008000-0007FFFE, 01000080-01001FFE.
+     */
+    nested_len = elite_load_be16(data);
+    count = elite_load_be16(data + 4U);
+    address_size = elite_load_be16(data + 6U);
+
+    if ((size_t)nested_len + 2U > data_len ||
+        count == 0U ||
+        count > CLIP_CAL_MAX_RANGES ||
+        address_size != 4U) {
+        set_last_error_text("Unsupported ELITE II calibration descriptor layout.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    starts_off = 8U;
+    length_size_off = starts_off + ((size_t)count * 4U);
+    if (length_size_off + 2U > data_len) {
+        set_last_error_text("Truncated ELITE II calibration descriptor.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    length_size = elite_load_be16(data + length_size_off);
+    if (length_size != 4U) {
+        set_last_error_text("Unsupported ELITE II calibration length width.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    lengths_off = length_size_off + 2U;
+    required = lengths_off + ((size_t)count * 4U);
+    if (required > data_len) {
+        set_last_error_text("Truncated ELITE II calibration range table.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    map->range_count = count;
+    for (i = 0U; i < count; ++i) {
+        map->ranges[i].address =
+            elite_load_be32(data + starts_off + ((size_t)i * 4U));
+        map->ranges[i].length =
+            elite_load_be32(data + lengths_off + ((size_t)i * 4U));
+        map->ranges[i].auxiliary = (clip_u32)0;
+
+        if (map->ranges[i].length == (clip_u32)0 ||
+            map->ranges[i].address >
+            (clip_u32)0xffffffffUL - map->ranges[i].length) {
+            set_last_error_text("Invalid ELITE II calibration memory range.");
+            return PULL_ERR_PROTOCOL;
+        }
+    }
+
+    return PULL_OK;
+}
+
+static int
+elite_read_memory(struct pull_ctx *ctx,
+                  clip_u32 address,
+                  unsigned int length,
+                  clip_u8 *out)
+{
+    clip_u8 request[9];
+    clip_u8 reply[CLIP_WIRE_MAX];
+    size_t request_len;
+    size_t reply_len;
+    size_t header_len;
+    clip_u8 expected_opcode;
+    int rc;
+
+    if (ctx == NULL || out == NULL || length == 0U ||
+        length > ELITE_II_BLOCK_SIZE) {
+        return PULL_ERR_ARGUMENT;
+    }
+
+    if (length <= 0xffU) {
+        request[0] = 0x4aU;
+        elite_store_be32(request + 1U, address);
+        request[5] = (clip_u8)length;
+        request[6] = 0xffU;
+        request[7] = 0xffU;
+        request_len = 8U;
+        expected_opcode = 0x4bU;
+        header_len = 6U;
+    } else {
+        request[0] = 0x4cU;
+        elite_store_be32(request + 1U, address);
+        elite_store_be32(request + 5U, (clip_u32)length);
+        request_len = 9U;
+        expected_opcode = 0x4dU;
+        header_len = 9U;
+    }
+
+    rc = elite_exchange(ctx,
+                        request,
+                        request_len,
+                        expected_opcode,
+                        reply,
+                        sizeof(reply),
+                        &reply_len,
+                        CLIP_READ_TIMEOUT_MS);
+    if (rc != PULL_OK)
+        return rc;
+
+    if (reply_len < header_len + (size_t)length ||
+        elite_load_be32(reply + 1U) != address) {
+        set_last_error_text("Invalid ELITE II memory-read reply.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    if (expected_opcode == 0x4bU) {
+        if (reply[5] != (clip_u8)length) {
+            set_last_error_text("ELITE II short-read length mismatch.");
+            return PULL_ERR_PROTOCOL;
+        }
+    } else {
+        if (elite_load_be32(reply + 5U) != (clip_u32)length) {
+            set_last_error_text("ELITE II block-read length mismatch.");
+            return PULL_ERR_PROTOCOL;
+        }
+    }
+
+    memcpy(out, reply + header_len, (size_t)length);
     return PULL_OK;
 }
 
@@ -1856,6 +2211,66 @@ allocate_image(const struct clip_cal_map *map, struct pull_image *image)
     return PULL_OK;
 }
 
+
+static int
+elite_pull_memory_ranges(struct pull_ctx *ctx,
+                         const struct clip_cal_map *map,
+                         struct pull_image *image)
+{
+    unsigned int i;
+    clip_u32 offset;
+    clip_u32 remaining;
+    unsigned int chunk;
+    size_t total;
+    size_t completed;
+    int percent;
+    int rc;
+    char msg[160];
+
+    if (ctx == NULL || map == NULL || image == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    total = clip_cal_total_size(map);
+    if (total == 0U) {
+        set_last_error_text("ELITE II descriptor contains no calibration bytes.");
+        return PULL_ERR_PROTOCOL;
+    }
+
+    completed = 0U;
+    for (i = 0U; i < map->range_count; ++i) {
+        offset = (clip_u32)0;
+
+        while (offset < map->ranges[i].length) {
+            remaining = map->ranges[i].length - offset;
+            chunk = ELITE_II_BLOCK_SIZE;
+            if ((clip_u32)chunk > remaining)
+                chunk = (unsigned int)remaining;
+
+            rc = elite_read_memory(ctx,
+                                   map->ranges[i].address + offset,
+                                   chunk,
+                                   image->ranges[i].data + (size_t)offset);
+            if (rc != PULL_OK)
+                return rc;
+
+            offset += (clip_u32)chunk;
+            completed += (size_t)chunk;
+
+            percent = 15 + (int)((completed * 77U) / total);
+            if (percent > 92)
+                percent = 92;
+
+            sprintf(msg,
+                    "Reading ENI/ELITE II calibration: %lu / %lu bytes",
+                    (unsigned long)completed,
+                    (unsigned long)total);
+            report_progress(ctx, percent, msg);
+        }
+    }
+
+    return PULL_OK;
+}
+
 static int
 pull_memory_ranges(struct pull_ctx *ctx,
                    clip_u8 *sequence,
@@ -2205,6 +2620,132 @@ write_ihex_record(FILE *fp,
         return 0;
 
     return 1;
+}
+
+
+static int
+write_elite_ccal(const char *path, const struct pull_image *image)
+{
+    FILE *fp;
+    unsigned int order[CLIP_CAL_MAX_RANGES];
+    unsigned int order_count;
+    unsigned int i;
+    unsigned int j;
+    unsigned int tmp_index;
+    unsigned int range_index;
+    clip_u32 offset;
+    clip_u32 address;
+    unsigned int high;
+    unsigned int current_high;
+    unsigned int low;
+    unsigned int room;
+    unsigned int count;
+    clip_u8 ela[2];
+    clip_u8 crc_placeholder[4];
+    int ok;
+
+    if (path == NULL || image == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        set_last_error_text("Unable to create destination ENI .ccal file.");
+        return PULL_ERR_FILE;
+    }
+
+    crc_placeholder[0] = 0x00U;
+    crc_placeholder[1] = 0x00U;
+    crc_placeholder[2] = 0x00U;
+    crc_placeholder[3] = 0x00U;
+
+    /*
+     * Legacy ENI files store their calibration CRC in the address field of a
+     * proprietary type-FF Intel-HEX record.  ccal_set_cal_file_crc() already
+     * knows this alternate format and patches the 0000 placeholder below.
+     */
+    ok = write_ihex_record(fp, 0xffU, 0U, crc_placeholder, 4U);
+
+    order_count = image->range_count;
+    if (order_count > CLIP_CAL_MAX_RANGES)
+        ok = 0;
+
+    for (i = 0U; i < order_count; ++i)
+        order[i] = i;
+
+    for (i = 0U; i < order_count; ++i) {
+        for (j = i + 1U; j < order_count; ++j) {
+            if (image->ranges[order[j]].address <
+                image->ranges[order[i]].address) {
+                tmp_index = order[i];
+                order[i] = order[j];
+                order[j] = tmp_index;
+            }
+        }
+    }
+
+    /*
+     * The legacy writer starts in bank zero implicitly.  Extended linear
+     * address records are emitted only when the high 16 bits actually change.
+     * Reference files use 16-byte data rows.
+     */
+    current_high = 0U;
+
+    for (i = 0U; ok && i < order_count; ++i) {
+        range_index = order[i];
+        offset = (clip_u32)0;
+
+        while (offset < image->ranges[range_index].length) {
+            address = image->ranges[range_index].address + offset;
+            high = (unsigned int)((address >> 16) & 0xffffUL);
+            low = (unsigned int)(address & 0xffffUL);
+
+            if (high != current_high) {
+                ela[0] = (clip_u8)((high >> 8) & 0xffU);
+                ela[1] = (clip_u8)(high & 0xffU);
+                if (!write_ihex_record(fp, 0x04U, 0U, ela, 2U)) {
+                    ok = 0;
+                    break;
+                }
+                current_high = high;
+            }
+
+            room = 0x10000U - low;
+            count = 16U;
+            if ((clip_u32)count >
+                image->ranges[range_index].length - offset) {
+                count = (unsigned int)
+                    (image->ranges[range_index].length - offset);
+            }
+            if (count > room)
+                count = room;
+
+            if (!write_ihex_record(
+                    fp,
+                    0x00U,
+                    low,
+                    image->ranges[range_index].data + (size_t)offset,
+                    count)) {
+                ok = 0;
+                break;
+            }
+
+            offset += (clip_u32)count;
+        }
+    }
+
+    if (ok && !write_ihex_record(fp, 0x01U, 0U, NULL, 0U))
+        ok = 0;
+
+    if (fclose(fp) != 0)
+        ok = 0;
+
+    if (!ok) {
+        DeleteFileA(path);
+        set_last_error_text("Failed while writing destination ENI .ccal file.");
+        return PULL_ERR_FILE;
+    }
+
+    return PULL_OK;
 }
 
 static int
@@ -2662,6 +3203,7 @@ rp1210_pull_ccal(const char *api_name,
     int rc;
     int connected;
     int clip_open;
+    int elite_open;
 
     memset(&ctx, 0, sizeof(ctx));
     memset(&map, 0, sizeof(map));
@@ -2685,6 +3227,7 @@ rp1210_pull_ccal(const char *api_name,
     ctx.progress = progress;
     connected = 0;
     clip_open = 0;
+    elite_open = 0;
 
     report_progress(&ctx, 0, "Loading RP1210 API...");
     rc = load_rp1210_api(api_name, &ctx.api);
@@ -2698,6 +3241,60 @@ rp1210_pull_ccal(const char *api_name,
     connected = 1;
 
     rc = clip_authenticate(&ctx);
+    if (rc == PULL_DETECTED_ELITE_II) {
+        /*
+         * CM550/CM554 ENI platform.  The 0D 18 81 reply to the CLIP-open probe
+         * is the protocol discriminator observed in the supplied trace.
+         */
+        clear_last_error();
+        report_progress(&ctx, 4, "ENI/ELITE II platform detected.");
+
+        report_progress(&ctx, 6, "Opening ELITE II calibration transfer...");
+        rc = elite_transfer_control(&ctx, 0x04U);
+        if (rc != PULL_OK)
+            goto done;
+        elite_open = 1;
+
+        report_progress(&ctx, 8, "Reading ELITE II calibration descriptor...");
+        rc = elite_get_descriptor(&ctx, &map);
+        if (rc != PULL_OK)
+            goto done;
+
+        rc = allocate_image(&map, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 12, "Reading ENI/ELITE II calibration memory...");
+        rc = elite_pull_memory_ranges(&ctx, &map, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 93, "Closing ELITE II calibration transfer...");
+        rc = elite_transfer_control(&ctx, 0x05U);
+        if (rc != PULL_OK)
+            goto done;
+        elite_open = 0;
+
+        report_progress(&ctx, 95, "Writing legacy ENI .ccal file...");
+        rc = write_elite_ccal(out_path, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 98, "Finalizing legacy calibration CRC...");
+        if (!ccal_set_cal_file_crc(out_path) ||
+            !ccal_check_cal_file_crc(out_path)) {
+            set_last_error_text(
+                "ENI calibration was pulled, but legacy calibration CRC finalization failed.");
+            rc = PULL_ERR_CRC;
+            goto done;
+        }
+
+        report_progress(&ctx, 100, "ENI/ELITE II calibration saved and CRC verified.");
+        clear_last_error();
+        rc = PULL_OK;
+        goto done;
+    }
+
     if (rc != PULL_OK)
         goto done;
     clip_open = 1;
@@ -2767,6 +3364,8 @@ rp1210_pull_ccal(const char *api_name,
     clear_last_error();
 
  done:
+    if (elite_open)
+        (void)elite_transfer_control(&ctx, 0x05U);
     if (clip_open)
         (void)clip_send_close(&ctx);
     if (connected)
@@ -2839,6 +3438,12 @@ rp1210_upload_ccal(const char *api_name,
     connected = 1;
 
     rc = clip_authenticate(&ctx);
+    if (rc == PULL_DETECTED_ELITE_II) {
+        set_last_error_text(
+            "ENI/ELITE II download is supported, but CM550/CM554 programming is disabled until an ELITE II upload trace is independently validated.");
+        rc = PULL_ERR_UPLOAD;
+        goto done;
+    }
     if (rc != PULL_OK)
         goto done;
     clip_open = 1;
