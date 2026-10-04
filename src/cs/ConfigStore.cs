@@ -40,6 +40,26 @@ internal static class NativeConfig
         DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
+    internal static extern int ct_config_get_bool(
+        string section,
+        string key,
+        int defaultValue,
+        out int value);
+
+    [DllImport(
+        DllName,
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Ansi)]
+    internal static extern int ct_config_get_raw(
+        string section,
+        string key,
+        StringBuilder output,
+        int outputSize);
+
+    [DllImport(
+        DllName,
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Ansi)]
     internal static extern int ct_config_set_string(
         string section,
         string key,
@@ -58,10 +78,27 @@ internal static class NativeConfig
         DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
+    internal static extern int ct_config_set_bool(
+        string section,
+        string key,
+        int value);
+
+    [DllImport(
+        DllName,
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Ansi)]
     internal static extern int ct_config_set_raw(
         string section,
         string key,
         string tomlValue);
+
+    [DllImport(
+        DllName,
+        CallingConvention = CallingConvention.Cdecl,
+        CharSet = CharSet.Ansi)]
+    internal static extern int ct_config_get_path(
+        StringBuilder output,
+        int outputSize);
 
     [DllImport(
         DllName,
