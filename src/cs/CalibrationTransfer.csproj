@@ -29,6 +29,9 @@
     <EmbeddedResource Include="..\..\build\native\rp1210scan.dll">
       <LogicalName>rp1210scan.dll</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="..\..\build\native\ctconfig.dll">
+      <LogicalName>ctconfig.dll</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
