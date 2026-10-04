@@ -1,19 +1,12 @@
 /*
- * rp1210clip.c
+ * clip_transfer.c
  *
- * Windows/RP1210 transport glue for the recovered CLIP session,
- * calibration upload procedure, and .ccal writer.
+ * CLIP/ELITE calibration-transfer orchestration over an RP1210 J1939
+ * transport.  RP1210 DLL loading, adapter connection, filtering, address
+ * claiming, and raw J1939 send/receive are isolated in rp1210_transport.c.
  *
- * The CLIP crypto and application-PDU logic intentionally lives in
- * clip_crypto.c and clip_cal.c.  This file only adds:
- *   - dynamic RP1210 loading / J1939 connection
- *   - the observed CLIP/J1939 outer envelope
- *   - session authentication using the observed reference tool tool context
- *   - memory-range upload
- *   - compatibility-header + Intel-HEX .ccal output
- *
- * C89 source.  Build this as 32-bit on Windows for the widest RP1210 vendor
- * compatibility.
+ * This file owns only protocol/session behavior and calibration-file handling.
+ * It remains C89 source.
  */
 
 #include <windows.h>
@@ -22,6 +15,8 @@
 #include <string.h>
 
 #include "rp1210clip.h"
+#include "rp1210_transport.h"
+#include "echo_transfer.h"
 #include "clip_crypto.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
@@ -33,18 +28,6 @@
 #define CLIP_TIMEOUT_MS                5000UL
 #define CLIP_READ_TIMEOUT_MS           10000UL
 #define CLIP_OPEN_TIMEOUT_MS           5000UL
-
-#define RP1210_CMD_SET_ALL_FILTERS_PASS     3
-#define RP1210_CMD_SET_J1939_FILTER          4
-#define RP1210_CMD_SET_ALL_FILTERS_DISCARD  17
-#define RP1210_CMD_PROTECT_J1939_ADDRESS    19
-#define RP1210_CMD_SET_J1939_FILTER_TYPE    25
-#define RP1210_CMD_FLUSH_TX_RX              39
-
-#define RP1210_FILTER_PGN          0x01U
-#define RP1210_FILTER_SOURCE       0x04U
-#define RP1210_FILTER_DESTINATION  0x08U
-#define RP1210_FILTER_INCLUSIVE    0x00U
 
 #define PULL_OK                         0
 #define PULL_ERR_ARGUMENT              -100
@@ -60,7 +43,7 @@
 #define PULL_ERR_FILE                   -110
 #define PULL_ERR_CRC                    -111
 #define PULL_ERR_UPLOAD                 -112
-#define PULL_ERR_ELITE_II_TX_BLOCKED    -113
+#define PULL_ERR_LEGACY_TX_BLOCKED      -113
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
@@ -94,27 +77,6 @@ static const clip_u8 g_default_tool_instance[6] = {
     0x00U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U
 };
 
-typedef short (WINAPI *PFN_RP1210_CLIENT_CONNECT)(
-    HWND, short, char *, long, long, short);
-typedef short (WINAPI *PFN_RP1210_CLIENT_DISCONNECT)(short);
-typedef short (WINAPI *PFN_RP1210_SEND_MESSAGE)(
-    short, char *, short, short, short);
-typedef short (WINAPI *PFN_RP1210_READ_MESSAGE)(
-    short, char *, short, short);
-typedef short (WINAPI *PFN_RP1210_SEND_COMMAND)(
-    short, short, char *, short);
-typedef short (WINAPI *PFN_RP1210_GET_ERROR_MSG)(short, char *);
-
-struct rp1210_api {
-    HMODULE module;
-    PFN_RP1210_CLIENT_CONNECT client_connect;
-    PFN_RP1210_CLIENT_DISCONNECT client_disconnect;
-    PFN_RP1210_SEND_MESSAGE send_message;
-    PFN_RP1210_READ_MESSAGE read_message;
-    PFN_RP1210_SEND_COMMAND send_command;
-    PFN_RP1210_GET_ERROR_MSG get_error_msg;
-};
-
 struct pull_range_image {
     clip_u32 address;
     clip_u32 length;
@@ -142,10 +104,7 @@ struct pull_meta {
 };
 
 struct pull_ctx {
-    struct rp1210_api api;
-    short client_id;
-    clip_u8 tool_sa;
-    clip_u8 ecm_sa;
+    struct rp1210_transport *transport;
     clip_u8 session_id;
     unsigned int wire_slot;
     int tolerate_negative;
@@ -259,346 +218,96 @@ report_progress(struct pull_ctx *ctx, int percent, const char *text)
         ctx->progress(percent, text);
 }
 
-static FARPROC
-resolve_proc(HMODULE module, const char *name, const char *decorated)
-{
-    FARPROC p;
-
-    p = GetProcAddress(module, name);
-    if (p == NULL && decorated != NULL)
-        p = GetProcAddress(module, decorated);
-    return p;
-}
-
 static int
-load_rp1210_api(const char *api_name, struct rp1210_api *api)
+map_transport_result(struct pull_ctx *ctx, int transport_rc)
 {
-    char dll_name[MAX_PATH];
-    size_t len;
+    const char *message;
 
-    if (api_name == NULL || api == NULL || api_name[0] == '\0')
+    if (transport_rc == RP1210_TRANSPORT_OK)
+        return PULL_OK;
+
+    message = rp1210_transport_error(
+        ctx != NULL ? ctx->transport : NULL);
+    if (message != NULL && message[0] != '\0')
+        set_last_error_text(message);
+
+    switch (transport_rc) {
+    case RP1210_TRANSPORT_ERR_ARGUMENT:
         return PULL_ERR_ARGUMENT;
-
-    memset(api, 0, sizeof(*api));
-
-    safe_copy(dll_name, api_name, sizeof(dll_name));
-    len = strlen(dll_name);
-    if (len < 4U || _stricmp(dll_name + len - 4U, ".dll") != 0) {
-        if (len + 4U >= sizeof(dll_name)) {
-            set_last_error_text("RP1210 API DLL name is too long.");
-            return PULL_ERR_LOAD_API;
-        }
-        strcat(dll_name, ".dll");
-    }
-
-    api->module = LoadLibraryA(dll_name);
-    if (api->module == NULL) {
-        set_last_error_code("Unable to load RP1210 vendor DLL",
-                            (long)GetLastError());
+    case RP1210_TRANSPORT_ERR_LOAD_API:
         return PULL_ERR_LOAD_API;
-    }
-
-    api->client_connect = (PFN_RP1210_CLIENT_CONNECT)
-        resolve_proc(api->module,
-                     "RP1210_ClientConnect",
-                     "_RP1210_ClientConnect@24");
-    api->client_disconnect = (PFN_RP1210_CLIENT_DISCONNECT)
-        resolve_proc(api->module,
-                     "RP1210_ClientDisconnect",
-                     "_RP1210_ClientDisconnect@4");
-    api->send_message = (PFN_RP1210_SEND_MESSAGE)
-        resolve_proc(api->module,
-                     "RP1210_SendMessage",
-                     "_RP1210_SendMessage@20");
-    api->read_message = (PFN_RP1210_READ_MESSAGE)
-        resolve_proc(api->module,
-                     "RP1210_ReadMessage",
-                     "_RP1210_ReadMessage@16");
-    api->send_command = (PFN_RP1210_SEND_COMMAND)
-        resolve_proc(api->module,
-                     "RP1210_SendCommand",
-                     "_RP1210_SendCommand@16");
-    api->get_error_msg = (PFN_RP1210_GET_ERROR_MSG)
-        resolve_proc(api->module,
-                     "RP1210_GetErrorMsg",
-                     "_RP1210_GetErrorMsg@8");
-
-    if (api->client_connect == NULL ||
-        api->client_disconnect == NULL ||
-        api->send_message == NULL ||
-        api->read_message == NULL ||
-        api->send_command == NULL) {
-        set_last_error_text("RP1210 vendor DLL is missing a required API export.");
-        FreeLibrary(api->module);
-        memset(api, 0, sizeof(*api));
+    case RP1210_TRANSPORT_ERR_SYMBOL:
         return PULL_ERR_SYMBOL;
-    }
-
-    return PULL_OK;
-}
-
-static void
-unload_rp1210_api(struct rp1210_api *api)
-{
-    if (api == NULL)
-        return;
-
-    if (api->module != NULL)
-        FreeLibrary(api->module);
-    memset(api, 0, sizeof(*api));
-}
-
-static void
-set_rp1210_error(struct pull_ctx *ctx, const char *what, short code)
-{
-    char message[256];
-    char tmp[512];
-
-    message[0] = '\0';
-    if (ctx != NULL && ctx->api.get_error_msg != NULL)
-        ctx->api.get_error_msg(code, message);
-
-    if (message[0] != '\0')
-        sprintf(tmp, "%s: RP1210 %d - %s", what, (int)code, message);
-    else
-        sprintf(tmp, "%s: RP1210 error %d", what, (int)code);
-
-    set_last_error_text(tmp);
-}
-
-static int
-rp1210_connect_j1939(struct pull_ctx *ctx, int device_id, int baud)
-{
-    char protocol[64];
-    char protocol_alt[64];
-    short client;
-    short rc;
-    int kbps;
-    int auto_baud;
-
-    if (ctx == NULL)
-        return PULL_ERR_ARGUMENT;
-
-    auto_baud = (baud == 0);
-
-    if (auto_baud) {
-        strcpy(protocol, "J1939:Baud=Auto");
-        protocol_alt[0] = '\0';
-    }
-    else if (baud == 125000 || baud == 250000 ||
-             baud == 500000 || baud == 1000000) {
-        kbps = baud / 1000;
-        sprintf(protocol, "J1939:Baud=%d", kbps);
-        sprintf(protocol_alt, "J1939:Baud=%d", baud);
-    }
-    else {
-        set_last_error_text("Unsupported J1939 baud rate.");
-        return PULL_ERR_ARGUMENT;
-    }
-
-    client = ctx->api.client_connect(NULL,
-                                      (short)device_id,
-                                      protocol,
-                                      0L,
-                                      0L,
-                                      0);
-
-    /*
-     * Auto means Auto.  Do not fall back to bare "J1939" here because a
-     * vendor DLL may interpret that as its configured/default fixed bitrate.
-     * If the VDA cannot honor Baud=Auto, fail instead of silently connecting
-     * at an unknown rate.
-     */
-    if (auto_baud && (client < 0 || client > 127)) {
-        set_rp1210_error(
-            ctx,
-            "RP1210_ClientConnect with J1939:Baud=Auto failed",
-            client);
+    case RP1210_TRANSPORT_ERR_CONNECT:
         return PULL_ERR_CONNECT;
-    }
-
-    if (!auto_baud && (client < 0 || client > 127)) {
-        client = ctx->api.client_connect(NULL,
-                                          (short)device_id,
-                                          protocol_alt,
-                                          0L,
-                                          0L,
-                                          0);
-    }
-
-    if (!auto_baud && (client < 0 || client > 127)) {
-        client = ctx->api.client_connect(NULL,
-                                          (short)device_id,
-                                          "J1939",
-                                          0L,
-                                          0L,
-                                          0);
-    }
-
-    if (client < 0 || client > 127) {
-        set_rp1210_error(ctx, "RP1210_ClientConnect failed", client);
-        return PULL_ERR_CONNECT;
-    }
-
-    ctx->client_id = client;
-
-    /*
-     * Do NOT put a busy vehicle network into pass-all mode here.  The first
-     * field test filled the NEXIQ receive queue and RP1210_ReadMessage returned
-     * -139 (the additive inverse of ERR_RX_QUEUE_FULL).  CLIP traffic for this
-     * session is only J1939 Proprietary-A PGN 0x00EF00 from ECM SA 0x00 to the
-     * selected tool SA, so install one inclusive seven-byte J1939 filter.
-     */
-    rc = ctx->api.send_command((short)RP1210_CMD_SET_ALL_FILTERS_DISCARD,
-                               ctx->client_id,
-                               NULL,
-                               0);
-    if (rc != 0) {
-        set_rp1210_error(ctx,
-                         "RP1210_Set_All_Filters_States_to_Discard failed",
-                         rc);
-        return PULL_ERR_CONNECT;
-    }
-
-    {
-        unsigned char filter_type;
-        unsigned char filter[7];
-
-        filter_type = RP1210_FILTER_INCLUSIVE;
-        rc = ctx->api.send_command((short)RP1210_CMD_SET_J1939_FILTER_TYPE,
-                                   ctx->client_id,
-                                   (char *)&filter_type,
-                                   1);
-        if (rc != 0) {
-            set_rp1210_error(ctx,
-                             "RP1210_Set_J1939_Filter_Type failed",
-                             rc);
-            return PULL_ERR_CONNECT;
-        }
-
-        filter[0] = (unsigned char)(RP1210_FILTER_PGN |
-                                    RP1210_FILTER_SOURCE |
-                                    RP1210_FILTER_DESTINATION);
-        filter[1] = (unsigned char)(CLIP_J1939_PGN & 0xffUL);
-        filter[2] = (unsigned char)((CLIP_J1939_PGN >> 8) & 0xffUL);
-        filter[3] = (unsigned char)((CLIP_J1939_PGN >> 16) & 0xffUL);
-        filter[4] = 0x00U; /* priority field is ignored by RP1210C */
-        filter[5] = ctx->ecm_sa;
-        filter[6] = ctx->tool_sa;
-
-        rc = ctx->api.send_command((short)RP1210_CMD_SET_J1939_FILTER,
-                                   ctx->client_id,
-                                   (char *)filter,
-                                   (short)sizeof(filter));
-        if (rc != 0) {
-            set_rp1210_error(ctx,
-                             "RP1210_Set_Message_Filtering_For_J1939 failed",
-                             rc);
-            return PULL_ERR_CONNECT;
-        }
-    }
-
-    /* Empty anything queued before the filter became active. */
-    rc = ctx->api.send_command((short)RP1210_CMD_FLUSH_TX_RX,
-                               ctx->client_id,
-                               NULL,
-                               0);
-    (void)rc;
-
-    /*
-     * RP1210 requires a J1939 source address to be claimed/protected before
-     * it will originate RTS/CTS transport sessions.  CLIP messages exceed
-     * eight bytes almost immediately, so omitting this command causes NEXIQ
-     * to return ERR_ADDRESS_NEVER_CLAIMED (157) from RP1210_SendMessage.
-     *
-     * Protect-J1939-Address command payload (RP1210C):
-     *   byte 0     requested source address
-     *   bytes 1-8  64-bit J1939 NAME, least-significant byte first
-     *   byte 9     status: 0 = BLOCK_UNTIL_DONE
-     *
-     * NAME below describes a generic off-board service tool (function 129)
-     * and is intentionally stable between runs.  Blocking until done means
-     * that a successful return guarantees the address claim has completed
-     * before the first CLIP packet is sent.
-     */
-    {
-        unsigned char claim[10];
-
-        claim[0] = ctx->tool_sa;
-        claim[1] = 0x01U; /* Identity Number bits 0..7 */
-        claim[2] = 0x00U;
-        claim[3] = 0x00U;
-        claim[4] = 0x00U;
-        claim[5] = 0x00U; /* ECU instance / function instance */
-        claim[6] = 0x81U; /* Function 129: off-board service tool */
-        claim[7] = 0x00U; /* Vehicle system / instance */
-        claim[8] = 0x80U; /* Arbitrary-address-capable bit */
-        claim[9] = 0x00U; /* BLOCK_UNTIL_DONE */
-
-        rc = ctx->api.send_command(
-            (short)RP1210_CMD_PROTECT_J1939_ADDRESS,
-            ctx->client_id,
-            (char *)claim,
-            (short)sizeof(claim));
-
-        if (rc != 0) {
-            set_rp1210_error(ctx,
-                             "RP1210_Protect_J1939_Address failed",
-                             rc);
-            return PULL_ERR_CONNECT;
-        }
-    }
-
-    report_progress(ctx, 2, "Connected and J1939 tool address claimed.");
-    return PULL_OK;
-}
-
-static void
-rp1210_disconnect(struct pull_ctx *ctx)
-{
-    if (ctx == NULL)
-        return;
-
-    if (ctx->client_id >= 0 && ctx->api.client_disconnect != NULL)
-        ctx->api.client_disconnect(ctx->client_id);
-    ctx->client_id = -1;
-}
-
-static int
-j1939_send_payload(struct pull_ctx *ctx, const clip_u8 *payload, size_t payload_len)
-{
-    clip_u8 buffer[CLIP_WIRE_MAX + 6U];
-    short rc;
-    size_t total;
-
-    if (ctx == NULL || payload == NULL)
-        return PULL_ERR_ARGUMENT;
-
-    if (payload_len > CLIP_WIRE_MAX) {
-        set_last_error_text("CLIP payload is larger than the RP1210 send buffer.");
+    case RP1210_TRANSPORT_ERR_SEND:
+        return PULL_ERR_SEND;
+    case RP1210_TRANSPORT_ERR_TIMEOUT:
+        return PULL_ERR_TIMEOUT;
+    case RP1210_TRANSPORT_ERR_MEMORY:
+        return PULL_ERR_MEMORY;
+    default:
         return PULL_ERR_PROTOCOL;
     }
+}
 
-    buffer[0] = (clip_u8)(CLIP_J1939_PGN & 0xffUL);
-    buffer[1] = (clip_u8)((CLIP_J1939_PGN >> 8) & 0xffUL);
-    buffer[2] = (clip_u8)((CLIP_J1939_PGN >> 16) & 0xffUL);
-    buffer[3] = (clip_u8)CLIP_J1939_PRIORITY;
-    buffer[4] = ctx->tool_sa;
-    buffer[5] = ctx->ecm_sa;
-    memcpy(buffer + 6U, payload, payload_len);
-    total = payload_len + 6U;
+static int
+open_rp1210_transport(struct pull_ctx *ctx,
+                      const char *api_name,
+                      int device_id,
+                      int baud,
+                      clip_u8 tool_sa,
+                      clip_u8 ecm_sa)
+{
+    int rc;
 
-    rc = ctx->api.send_message(ctx->client_id,
-                               (char *)buffer,
-                               (short)total,
-                               0,
-                               0);
-    if (rc != 0) {
-        set_rp1210_error(ctx, "RP1210_SendMessage failed", rc);
-        return PULL_ERR_SEND;
+    if (ctx == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    ctx->transport = rp1210_transport_create();
+    if (ctx->transport == NULL) {
+        set_last_error_text("Unable to allocate RP1210 transport.");
+        return PULL_ERR_MEMORY;
     }
 
+    rc = rp1210_transport_open(ctx->transport,
+                               api_name,
+                               device_id,
+                               baud,
+                               CLIP_J1939_PGN,
+                               CLIP_J1939_PRIORITY,
+                               tool_sa,
+                               ecm_sa);
+    if (rc != RP1210_TRANSPORT_OK)
+        return map_transport_result(ctx, rc);
+
     return PULL_OK;
+}
+
+static void
+close_rp1210_transport(struct pull_ctx *ctx)
+{
+    if (ctx == NULL || ctx->transport == NULL)
+        return;
+
+    rp1210_transport_destroy(ctx->transport);
+    ctx->transport = NULL;
+}
+
+static int
+j1939_send_payload(struct pull_ctx *ctx,
+                   const clip_u8 *payload,
+                   size_t payload_len)
+{
+    int rc;
+
+    if (ctx == NULL || ctx->transport == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    rc = rp1210_transport_send(ctx->transport,
+                               (const unsigned char *)payload,
+                               payload_len);
+    return map_transport_result(ctx, rc);
 }
 
 static int
@@ -608,69 +317,107 @@ j1939_read_payload(struct pull_ctx *ctx,
                    size_t *payload_len,
                    unsigned long timeout_ms)
 {
-    clip_u8 buffer[CLIP_WIRE_MAX + 32U];
-    DWORD start;
-    DWORD now;
-    short n;
-    unsigned long pgn;
-    size_t n_payload;
-    clip_u8 sa;
-    clip_u8 da;
+    int rc;
 
-    if (ctx == NULL || payload == NULL || payload_len == NULL)
+    if (ctx == NULL || ctx->transport == NULL)
         return PULL_ERR_ARGUMENT;
 
-    start = GetTickCount();
+    rc = rp1210_transport_receive(ctx->transport,
+                                  (unsigned char *)payload,
+                                  payload_capacity,
+                                  payload_len,
+                                  timeout_ms);
+    return map_transport_result(ctx, rc);
+}
 
-    for (;;) {
-        n = ctx->api.read_message(ctx->client_id,
-                                  (char *)buffer,
-                                  (short)sizeof(buffer),
-                                  0);
+static int
+echo_send_adapter(void *user,
+                  const unsigned char *data,
+                  unsigned int length)
+{
+    struct pull_ctx *ctx;
+    int rc;
 
-        if (n > 0) {
-            if (n >= 10) {
-                pgn = (unsigned long)buffer[4] |
-                      ((unsigned long)buffer[5] << 8) |
-                      ((unsigned long)buffer[6] << 16);
-                sa = buffer[8];
-                da = buffer[9];
+    ctx = (struct pull_ctx *)user;
+    rc = j1939_send_payload(ctx,
+                            (const clip_u8 *)data,
+                            (size_t)length);
+    return rc == PULL_OK ? 0 : rc;
+}
 
-                if (pgn == CLIP_J1939_PGN &&
-                    sa == ctx->ecm_sa &&
-                    (da == ctx->tool_sa || da == 0xffU)) {
-                    n_payload = (size_t)n - 10U;
-                    if (n_payload > payload_capacity) {
-                        set_last_error_text("Incoming CLIP message exceeds receive buffer.");
-                        return PULL_ERR_PROTOCOL;
-                    }
+static int
+echo_recv_adapter(void *user,
+                  unsigned char *data,
+                  unsigned int capacity,
+                  unsigned int *length,
+                  unsigned long timeout_ms)
+{
+    struct pull_ctx *ctx;
+    size_t n;
+    int rc;
 
-                    memcpy(payload, buffer + 10U, n_payload);
-                    *payload_len = n_payload;
-                    return PULL_OK;
-                }
-            }
-        } else if (n < 0) {
-            /*
-             * RP1210_ReadMessage reports an error as the additive inverse of
-             * the RP1210 error number.  For example, -139 means
-             * ERR_RX_QUEUE_FULL (139).  RP1210_GetErrorMsg expects +139.
-             */
-            set_rp1210_error(ctx,
-                             "RP1210_ReadMessage failed",
-                             (short)(-n));
-            return PULL_ERR_PROTOCOL;
-        }
+    if (length == NULL)
+        return PULL_ERR_ARGUMENT;
 
-        now = GetTickCount();
-        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
-            break;
+    ctx = (struct pull_ctx *)user;
+    n = 0U;
+    rc = j1939_read_payload(ctx,
+                            (clip_u8 *)data,
+                            (size_t)capacity,
+                            &n,
+                            timeout_ms);
+    if (rc != PULL_OK)
+        return rc;
 
-        Sleep(1);
+    *length = (unsigned int)n;
+    return 0;
+}
+
+static void
+echo_progress_adapter(void *user, int percent, const char *message)
+{
+    report_progress((struct pull_ctx *)user, percent, message);
+}
+
+static void
+echo_init_io(struct pull_ctx *ctx, echo_io *io)
+{
+    if (io == NULL)
+        return;
+
+    io->user = ctx;
+    io->send = echo_send_adapter;
+    io->recv = echo_recv_adapter;
+    io->progress = echo_progress_adapter;
+}
+
+static int
+map_echo_result(int echo_rc)
+{
+    const char *message;
+
+    if (echo_rc == ECHO_TRANSFER_OK)
+        return PULL_OK;
+
+    message = echo_get_last_error();
+    if (g_last_error[0] == '\0' &&
+        message != NULL &&
+        message[0] != '\0') {
+        set_last_error_text(message);
     }
 
-    set_last_error_text("Timed out waiting for CLIP response from ECM.");
-    return PULL_ERR_TIMEOUT;
+    switch (echo_rc) {
+    case ECHO_TRANSFER_ERR_ARGUMENT:
+        return PULL_ERR_ARGUMENT;
+    case ECHO_TRANSFER_ERR_MEMORY:
+        return PULL_ERR_MEMORY;
+    case ECHO_TRANSFER_ERR_FILE:
+        return PULL_ERR_FILE;
+    case ECHO_TRANSFER_ERR_CRC:
+        return PULL_ERR_CRC;
+    default:
+        return PULL_ERR_PROTOCOL;
+    }
 }
 
 static clip_u8
@@ -3223,9 +2970,10 @@ rp1210_pull_ccal(const char *api_name,
     struct clip_cal_map map;
     struct pull_image image;
     struct pull_meta meta;
+    echo_io echo;
     clip_u8 sequence;
     int rc;
-    int connected;
+    int echo_detected;
     int clip_open;
     int elite_open;
 
@@ -3243,33 +2991,48 @@ rp1210_pull_ccal(const char *api_name,
         return PULL_ERR_ARGUMENT;
     }
 
-    ctx.client_id = -1;
-    ctx.tool_sa = (clip_u8)tool_sa;
-    ctx.ecm_sa = (clip_u8)ecm_sa;
+    ctx.transport = NULL;
     ctx.session_id = 0x01U;
     ctx.wire_slot = 0U;
     ctx.progress = progress;
-    connected = 0;
     clip_open = 0;
     elite_open = 0;
 
-    report_progress(&ctx, 0, "Loading RP1210 API...");
-    rc = load_rp1210_api(api_name, &ctx.api);
+    report_progress(&ctx, 0, "Opening RP1210/J1939 transport...");
+    rc = open_rp1210_transport(&ctx,
+                               api_name,
+                               device_id,
+                               baud,
+                               (clip_u8)tool_sa,
+                               (clip_u8)ecm_sa);
     if (rc != PULL_OK)
         goto done;
 
-    report_progress(&ctx, 1, "Connecting to J1939 adapter...");
-    rc = rp1210_connect_j1939(&ctx, device_id, baud);
-    if (rc != PULL_OK)
-        goto done;
-    connected = 1;
+    report_progress(&ctx, 2, "Connected and J1939 tool address claimed.");
 
     rc = clip_authenticate(&ctx);
     if (rc == PULL_DETECTED_ELITE_II) {
         /*
-         * CM550/CM554 ENI platform.  The 0D 18 81 reply to the CLIP-open probe
-         * is the protocol discriminator observed in the supplied trace.
+         * The negative CLIP-open reply identifies a legacy raw
+         * Proprietary-A platform.  Probe ProductID before choosing the
+         * family-specific readback path.
          */
+        clear_last_error();
+        echo_init_io(&ctx, &echo);
+        echo_detected = echo_probe(&echo);
+
+        if (echo_detected > 0) {
+            clear_last_error();
+            rc = echo_pull_ccal(&echo, out_path);
+            if (rc != ECHO_TRANSFER_OK)
+                rc = map_echo_result(rc);
+            else {
+                clear_last_error();
+                rc = PULL_OK;
+            }
+            goto done;
+        }
+
         clear_last_error();
         report_progress(&ctx, 4, "ENI/ELITE II platform detected.");
 
@@ -3392,9 +3155,7 @@ rp1210_pull_ccal(const char *api_name,
         (void)elite_transfer_control(&ctx, 0x05U);
     if (clip_open)
         (void)clip_send_close(&ctx);
-    if (connected)
-        rp1210_disconnect(&ctx);
-    unload_rp1210_api(&ctx.api);
+    close_rp1210_transport(&ctx);
     free_image(&image);
 
     return rc;
@@ -3412,10 +3173,11 @@ rp1210_upload_ccal(const char *api_name,
     struct pull_ctx ctx;
     clip_cal_io io;
     clip_cal_options options;
+    echo_io echo;
     clip_u8 sequence;
     int rc;
     int crc_ok;
-    int connected;
+    int echo_detected;
     int clip_open;
     int loader_mode;
 
@@ -3440,43 +3202,57 @@ rp1210_upload_ccal(const char *api_name,
         return PULL_ERR_CRC;
     }
 
-    ctx.client_id = -1;
-    ctx.tool_sa = (clip_u8)tool_sa;
-    ctx.ecm_sa = (clip_u8)ecm_sa;
+    ctx.transport = NULL;
     ctx.session_id = 0x01U;
     ctx.wire_slot = 0U;
     ctx.progress = progress;
-    connected = 0;
     clip_open = 0;
     loader_mode = 0;
 
-    report_progress(&ctx, 2, "CCAL CRC verified. Loading RP1210 API...");
-    rc = load_rp1210_api(api_name, &ctx.api);
+    report_progress(&ctx, 2, "CCAL CRC verified. Opening RP1210/J1939 transport...");
+    rc = open_rp1210_transport(&ctx,
+                               api_name,
+                               device_id,
+                               baud,
+                               (clip_u8)tool_sa,
+                               (clip_u8)ecm_sa);
     if (rc != PULL_OK)
         goto done;
 
-    report_progress(&ctx, 4, "Connecting to J1939 adapter...");
-    rc = rp1210_connect_j1939(&ctx, device_id, baud);
-    if (rc != PULL_OK)
-        goto done;
-    connected = 1;
+    report_progress(&ctx, 4, "Connected and J1939 tool address claimed.");
 
     rc = clip_authenticate(&ctx);
     if (rc == PULL_DETECTED_ELITE_II) {
         /*
          * INTENTIONAL SAFETY BLOCKER.
          *
-         * ECHO II-era / ENI / ELITE II controllers may be read, but this
-         * application must not send calibration/configuration data to them.
-         * Keep this gate ahead of every programming preflight/loader command.
+         * The validated ECH/ECHO material supplied for this implementation is
+         * a readback trace: 4C memory-read requests with 4D data replies.  It
+         * does not establish a safe calibration/configuration write sequence.
+         * ECHO II / ENI / ELITE II programming remains blocked as well.
          */
-        report_progress(
-            &ctx,
-            5,
-            "ECHO II / ELITE II programming is intentionally blocked.");
-        set_last_error_text(
-            "Sending config files to ECHO II-era ECMs is not supported due to potential corruption of the ECM. If you know what you are doing, use the recommended OEM software.");
-        rc = PULL_ERR_ELITE_II_TX_BLOCKED;
+        clear_last_error();
+        echo_init_io(&ctx, &echo);
+        echo_detected = echo_probe(&echo);
+
+        if (echo_detected > 0) {
+            report_progress(
+                &ctx,
+                5,
+                "ECH/ECHO programming is intentionally blocked.");
+            set_last_error_text(
+                "ECH/ECHO calibration readback is supported, but programming is intentionally blocked because the validated trace only proves read operations. Use the recommended OEM software for programming.");
+        }
+        else {
+            report_progress(
+                &ctx,
+                5,
+                "ECHO II / ELITE II programming is intentionally blocked.");
+            set_last_error_text(
+                "Sending config files to ECHO II-era ECMs is not supported due to potential corruption of the ECM. If you know what you are doing, use the recommended OEM software.");
+        }
+
+        rc = PULL_ERR_LEGACY_TX_BLOCKED;
         goto done;
     }
     if (rc != PULL_OK)
@@ -3558,9 +3334,7 @@ rp1210_upload_ccal(const char *api_name,
  done:
     if (clip_open && !loader_mode)
         (void)clip_send_close(&ctx);
-    if (connected)
-        rp1210_disconnect(&ctx);
-    unload_rp1210_api(&ctx.api);
+    close_rp1210_transport(&ctx);
     return rc;
 }
 

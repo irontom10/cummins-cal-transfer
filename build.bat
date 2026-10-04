@@ -69,12 +69,14 @@ if exist "%BUILD%" rmdir /S /Q "%BUILD%"
 mkdir "%OBJ%" "%NATIVE%" "%APP%" "%TOOLS%"
 if errorlevel 1 goto :fail
 
-echo [1/4] Building native RP1210/CLIP core...
+echo [1/4] Building native RP1210 and calibration protocol core...
 pushd "%OBJ%"
 
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
     "%SRC_C%\rp1210scan.c" ^
-    "%SRC_C%\rp1210clip.c" ^
+    "%SRC_C%\rp1210_transport.c" ^
+    "%SRC_C%\clip_transfer.c" ^
+    "%SRC_C%\echo_transfer.c" ^
     "%SRC_C%\clip_crypto.c" ^
     "%SRC_C%\clip_cal.c" ^
     "%SRC_C%\ccal_crc.c"
@@ -85,7 +87,7 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210clip.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
+    rp1210scan.obj rp1210_transport.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 

@@ -77,3 +77,28 @@ This handoff remains the primary live-test boundary.
 The initial raw transfer request receives an interim response immediately, while final completion can take roughly 22 seconds.
 
 The programming completion timeout is therefore 60 seconds; a short timeout can falsely abort a valid transfer.
+
+
+## ECH / ECHO readback validation
+
+ECH/ECHO-series download support is based on a captured raw Proprietary-A
+readback session and its resulting calibration file.
+
+The validated path uses:
+
+- ProductID parameter `0x0043` returning `ECH`.
+- Transfer control `04 FE FE ...` / `05 FE FE ...`.
+- Calibration descriptor parameter `0x002E` with 32-bit addresses and lengths.
+- Metadata parameters for calibration version, module/product identifiers,
+  module part number, market, interface level, boot-loader versions, engine
+  family, fuel system, byte order, address length, and data link.
+- `4C <address32> <length32>` reads with `4D` data replies, in 1000-byte
+  blocks.
+
+The captured readback contained 387,134 calibration bytes across the descriptor
+ranges. Reconstructing the `4D` payloads produces the same calibration bytes
+as the supplied ECH/ECHO `.ccal` data records.
+
+The trace does **not** contain an ECH/ECHO programming/write sequence. ECH/ECHO
+programming is therefore intentionally blocked; the implementation adds
+readback only.
