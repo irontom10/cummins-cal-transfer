@@ -5,7 +5,6 @@ cd /d "%~dp0"
 
 set "ROOT=%CD%"
 set "SRC_C=%ROOT%\src\c"
-set "SRC_CONFIG=%ROOT%\src\config"
 set "SRC_CS=%ROOT%\src\cs"
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
@@ -93,11 +92,11 @@ if errorlevel 1 goto :fail_from_obj
 echo [2/4] Building standalone UI config store...
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
     /Fo:config_store.obj ^
-    "%SRC_CONFIG%\config_store.c"
+    "%SRC_C%\config_store.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /DLL /MACHINE:X86 ^
-    /DEF:"%SRC_CONFIG%\config_store.def" ^
+    /DEF:"%SRC_C%\config_store.def" ^
     /OUT:"%NATIVE%\ctconfig.dll" ^
     /IMPLIB:"%NATIVE%\ctconfig.lib" ^
     /PDB:"%NATIVE%\ctconfig.pdb" ^
