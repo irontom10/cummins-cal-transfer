@@ -19,4 +19,4 @@ jobs:
 
       - name: Build
         shell: cmd
-        run: build_x86.bat
+        run: build.bat
