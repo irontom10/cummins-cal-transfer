@@ -106,6 +106,29 @@ A bad file is rejected before the RP1210 adapter is opened.
 
 The remaining live-test boundary is the CLIP-to-loader shutdown timing around the session-specific initiator close. See [docs/upload-validation.md](docs/upload-validation.md).
 
+## Releases
+
+Version tags automatically produce a Windows x86 GitHub Release.
+
+```bat
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds from that exact tag and attaches:
+
+```text
+CumminsCalTransfer-v0.1.0-win-x86.exe
+CumminsCalTransfer-v0.1.0-win-x86.exe.sha256
+```
+
+GitHub also provides source archives for the tagged revision.
+
+## License
+
+This project is licensed under the **GNU General Public License version 2 only**
+(`GPL-2.0-only`). See [LICENSE](LICENSE).
+
 ## Programming caution
 
 ECM programming is not a read-only operation. Use stable vehicle power, a reliable RP1210 connection, and a calibration intended for the target module. Do not interrupt power or communications during an upload.
