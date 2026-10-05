@@ -1,9 +1,9 @@
 /*
  * clip_transfer.c
  *
- * CLIP/ELITE calibration-transfer orchestration over an RP1210 J1939
- * transport.  RP1210 DLL loading, adapter connection, filtering, address
- * claiming, and raw J1939 send/receive are isolated in rp1210_transport.c.
+ * CLIP/ELITE calibration-transfer orchestration over J1939.
+ * J1939 framing/session behavior is isolated in j1939_transport.c, while
+ * RP1210 DLL/client handling is isolated below it in rp1210_transport.c.
  *
  * This file owns only protocol/session behavior and calibration-file handling.
  * It remains C89 source.
