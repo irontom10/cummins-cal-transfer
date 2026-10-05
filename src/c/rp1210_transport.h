@@ -15,7 +15,7 @@ extern "C" {
 #define RP1210_TRANSPORT_ERR_SEND       -5
 #define RP1210_TRANSPORT_ERR_RECEIVE    -6
 #define RP1210_TRANSPORT_ERR_TIMEOUT    -7
-#define RP1210_TRANSPORT_ERR_PROTOCOL   -8
+#define RP1210_TRANSPORT_ERR_COMMAND    -8
 #define RP1210_TRANSPORT_ERR_MEMORY     -9
 
 struct rp1210_transport;
@@ -26,30 +26,38 @@ rp1210_transport_create(void);
 void
 rp1210_transport_destroy(struct rp1210_transport *transport);
 
+/*
+ * Open one RP1210 client using an arbitrary RP1210 protocol string.
+ *
+ * This layer intentionally knows nothing about J1939, PGNs, source
+ * addresses, filters, or higher-level ECM protocols.
+ */
 int
 rp1210_transport_open(struct rp1210_transport *transport,
                       const char *api_name,
                       int device_id,
-                      int baud,
-                      unsigned long pgn,
-                      unsigned char priority,
-                      unsigned char source_address,
-                      unsigned char destination_address);
+                      const char *protocol);
 
 void
 rp1210_transport_close(struct rp1210_transport *transport);
 
 int
 rp1210_transport_send(struct rp1210_transport *transport,
-                      const unsigned char *payload,
-                      size_t payload_len);
+                      const unsigned char *message,
+                      size_t message_len);
 
 int
 rp1210_transport_receive(struct rp1210_transport *transport,
-                         unsigned char *payload,
-                         size_t payload_capacity,
-                         size_t *payload_len,
+                         unsigned char *message,
+                         size_t message_capacity,
+                         size_t *message_len,
                          unsigned long timeout_ms);
+
+int
+rp1210_transport_command(struct rp1210_transport *transport,
+                         int command,
+                         const unsigned char *data,
+                         size_t data_len);
 
 const char *
 rp1210_transport_error(const struct rp1210_transport *transport);
