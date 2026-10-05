@@ -1,9 +1,9 @@
 /*
  * clip_transfer.c
  *
- * CLIP/ELITE calibration-transfer orchestration over an RP1210 J1939
- * transport.  RP1210 DLL loading, adapter connection, filtering, address
- * claiming, and raw J1939 send/receive are isolated in rp1210_transport.c.
+ * CLIP/ELITE calibration-transfer orchestration over J1939.
+ * J1939 framing/session behavior is isolated in j1939_transport.c, while
+ * RP1210 DLL/client handling is isolated below it in rp1210_transport.c.
  *
  * This file owns only protocol/session behavior and calibration-file handling.
  * It remains C89 source.
@@ -15,7 +15,7 @@
 #include <string.h>
 
 #include "rp1210clip.h"
-#include "rp1210_transport.h"
+#include "j1939_transport.h"
 #include "echo_transfer.h"
 #include "clip_crypto.h"
 #include "clip_cal.h"
@@ -104,7 +104,7 @@ struct pull_meta {
 };
 
 struct pull_ctx {
-    struct rp1210_transport *transport;
+    struct j1939_transport *transport;
     clip_u8 session_id;
     unsigned int wire_slot;
     int tolerate_negative;
@@ -223,28 +223,28 @@ map_transport_result(struct pull_ctx *ctx, int transport_rc)
 {
     const char *message;
 
-    if (transport_rc == RP1210_TRANSPORT_OK)
+    if (transport_rc == J1939_TRANSPORT_OK)
         return PULL_OK;
 
-    message = rp1210_transport_error(
+    message = j1939_transport_error(
         ctx != NULL ? ctx->transport : NULL);
     if (message != NULL && message[0] != '\0')
         set_last_error_text(message);
 
     switch (transport_rc) {
-    case RP1210_TRANSPORT_ERR_ARGUMENT:
+    case J1939_TRANSPORT_ERR_ARGUMENT:
         return PULL_ERR_ARGUMENT;
-    case RP1210_TRANSPORT_ERR_LOAD_API:
+    case J1939_TRANSPORT_ERR_LOAD_API:
         return PULL_ERR_LOAD_API;
-    case RP1210_TRANSPORT_ERR_SYMBOL:
+    case J1939_TRANSPORT_ERR_SYMBOL:
         return PULL_ERR_SYMBOL;
-    case RP1210_TRANSPORT_ERR_CONNECT:
+    case J1939_TRANSPORT_ERR_CONNECT:
         return PULL_ERR_CONNECT;
-    case RP1210_TRANSPORT_ERR_SEND:
+    case J1939_TRANSPORT_ERR_SEND:
         return PULL_ERR_SEND;
-    case RP1210_TRANSPORT_ERR_TIMEOUT:
+    case J1939_TRANSPORT_ERR_TIMEOUT:
         return PULL_ERR_TIMEOUT;
-    case RP1210_TRANSPORT_ERR_MEMORY:
+    case J1939_TRANSPORT_ERR_MEMORY:
         return PULL_ERR_MEMORY;
     default:
         return PULL_ERR_PROTOCOL;
@@ -252,7 +252,7 @@ map_transport_result(struct pull_ctx *ctx, int transport_rc)
 }
 
 static int
-open_rp1210_transport(struct pull_ctx *ctx,
+open_j1939_transport(struct pull_ctx *ctx,
                       const char *api_name,
                       int device_id,
                       int baud,
@@ -264,13 +264,13 @@ open_rp1210_transport(struct pull_ctx *ctx,
     if (ctx == NULL)
         return PULL_ERR_ARGUMENT;
 
-    ctx->transport = rp1210_transport_create();
+    ctx->transport = j1939_transport_create();
     if (ctx->transport == NULL) {
-        set_last_error_text("Unable to allocate RP1210 transport.");
+        set_last_error_text("Unable to allocate J1939 transport.");
         return PULL_ERR_MEMORY;
     }
 
-    rc = rp1210_transport_open(ctx->transport,
+    rc = j1939_transport_open(ctx->transport,
                                api_name,
                                device_id,
                                baud,
@@ -278,19 +278,19 @@ open_rp1210_transport(struct pull_ctx *ctx,
                                CLIP_J1939_PRIORITY,
                                tool_sa,
                                ecm_sa);
-    if (rc != RP1210_TRANSPORT_OK)
+    if (rc != J1939_TRANSPORT_OK)
         return map_transport_result(ctx, rc);
 
     return PULL_OK;
 }
 
 static void
-close_rp1210_transport(struct pull_ctx *ctx)
+close_j1939_transport(struct pull_ctx *ctx)
 {
     if (ctx == NULL || ctx->transport == NULL)
         return;
 
-    rp1210_transport_destroy(ctx->transport);
+    j1939_transport_destroy(ctx->transport);
     ctx->transport = NULL;
 }
 
@@ -304,7 +304,7 @@ j1939_send_payload(struct pull_ctx *ctx,
     if (ctx == NULL || ctx->transport == NULL)
         return PULL_ERR_ARGUMENT;
 
-    rc = rp1210_transport_send(ctx->transport,
+    rc = j1939_transport_send(ctx->transport,
                                (const unsigned char *)payload,
                                payload_len);
     return map_transport_result(ctx, rc);
@@ -322,7 +322,7 @@ j1939_read_payload(struct pull_ctx *ctx,
     if (ctx == NULL || ctx->transport == NULL)
         return PULL_ERR_ARGUMENT;
 
-    rc = rp1210_transport_receive(ctx->transport,
+    rc = j1939_transport_receive(ctx->transport,
                                   (unsigned char *)payload,
                                   payload_capacity,
                                   payload_len,
@@ -2999,7 +2999,7 @@ rp1210_pull_ccal(const char *api_name,
     elite_open = 0;
 
     report_progress(&ctx, 0, "Opening RP1210/J1939 transport...");
-    rc = open_rp1210_transport(&ctx,
+    rc = open_j1939_transport(&ctx,
                                api_name,
                                device_id,
                                baud,
@@ -3155,7 +3155,7 @@ rp1210_pull_ccal(const char *api_name,
         (void)elite_transfer_control(&ctx, 0x05U);
     if (clip_open)
         (void)clip_send_close(&ctx);
-    close_rp1210_transport(&ctx);
+    close_j1939_transport(&ctx);
     free_image(&image);
 
     return rc;
@@ -3210,7 +3210,7 @@ rp1210_upload_ccal(const char *api_name,
     loader_mode = 0;
 
     report_progress(&ctx, 2, "CCAL CRC verified. Opening RP1210/J1939 transport...");
-    rc = open_rp1210_transport(&ctx,
+    rc = open_j1939_transport(&ctx,
                                api_name,
                                device_id,
                                baud,
@@ -3334,7 +3334,7 @@ rp1210_upload_ccal(const char *api_name,
  done:
     if (clip_open && !loader_mode)
         (void)clip_send_close(&ctx);
-    close_rp1210_transport(&ctx);
+    close_j1939_transport(&ctx);
     return rc;
 }
 
