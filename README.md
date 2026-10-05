@@ -2,7 +2,7 @@
 
 Open-source Windows x86 utility for downloading and uploading ECM calibration data over J1939 through an RP1210 adapter.
 
-The project is split into a C89 native core and a .NET 10 WinForms front end. The native side keeps RP1210/J1939 transport separate from CLIP, ECH/ECHO, and ENI/ELITE II protocol logic. Both native DLLs are embedded into the final executable and extracted to a versioned per-user cache at runtime.
+The project is split into a C89 native core and a .NET 10 WinForms front end. The native side keeps the generic RP1210 transport, J1939 session/framing layer, and ECM protocol logic separate from one another. Both native DLLs are embedded into the final executable and extracted to a versioned per-user cache at runtime.
 
 ## Features
 
@@ -30,6 +30,7 @@ The project is split into a C89 native core and a .NET 10 WinForms front end. Th
     │   ├── crc_call.c
     │   ├── clip_transfer.c
     │   ├── echo_transfer.c/.h
+    │   ├── j1939_transport.c/.h
     │   ├── rp1210clip.h
     │   ├── rp1210_transport.c/.h
     │   ├── rp1210scan.c/.h
