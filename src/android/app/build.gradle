@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+def vendorMain = file("${rootProject.projectDir}/.vendor-rp1210/app/src/main")
+
+if (!vendorMain.exists()) {
+    throw new GradleException(
+            "Android RP1210 vendor payload is not staged. Run src/android/build.bat or build.sh.")
+}
+
+android {
+    namespace 'com.irontom10.calibrationtransfer'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.irontom10.calibrationtransfer'
+        minSdk 24
+        targetSdk 33
+        versionCode 1
+        versionName '0.1.0-android-dev'
+
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = [new File(vendorMain, "jniLibs")]
+            assets.srcDirs = [
+                    'src/main/assets',
+                    new File(vendorMain, "assets")
+            ]
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'CMakeLists.txt'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
