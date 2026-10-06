@@ -10,13 +10,13 @@
  * C89 source.
  */
 
-#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "j1939_transport.h"
 #include "rp1210_transport.h"
+#include "ct_platform.h"
 
 #define J1939_TRANSPORT_MAX_PAYLOAD        4096U
 #define J1939_RP1210_RX_OVERHEAD             32U
@@ -397,8 +397,8 @@ j1939_transport_receive(struct j1939_transport *transport,
 {
     unsigned char buffer[J1939_TRANSPORT_MAX_PAYLOAD +
                          J1939_RP1210_RX_OVERHEAD];
-    DWORD start;
-    DWORD now;
+    unsigned long start;
+    unsigned long now;
     unsigned long elapsed;
     unsigned long remaining;
     unsigned long pgn;
@@ -415,11 +415,11 @@ j1939_transport_receive(struct j1939_transport *transport,
     }
 
     *payload_len = 0U;
-    start = GetTickCount();
+    start = ct_monotonic_ms();
 
     for (;;) {
-        now = GetTickCount();
-        elapsed = (unsigned long)((DWORD)(now - start));
+        now = ct_monotonic_ms();
+        elapsed = (unsigned long)((unsigned long)(now - start));
         if (elapsed >= timeout_ms)
             remaining = 0UL;
         else
@@ -459,8 +459,8 @@ j1939_transport_receive(struct j1939_transport *transport,
             }
         }
 
-        now = GetTickCount();
-        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
+        now = ct_monotonic_ms();
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
     }
 

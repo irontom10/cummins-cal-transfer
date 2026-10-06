@@ -9,7 +9,6 @@
  * It remains C89 source.
  */
 
-#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +19,7 @@
 #include "clip_crypto.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
+#include "ct_platform.h"
 
 #define CLIP_J1939_PGN                 0x00ef00UL
 #define CLIP_J1939_PRIORITY            6U
@@ -834,8 +834,8 @@ elite_exchange(struct pull_ctx *ctx,
 {
     clip_u8 incoming[CLIP_WIRE_MAX];
     size_t incoming_len;
-    DWORD start;
-    DWORD now;
+    unsigned long start;
+    unsigned long now;
     int rc;
 
     if (ctx == NULL || request == NULL || request_len == 0U ||
@@ -847,17 +847,17 @@ elite_exchange(struct pull_ctx *ctx,
     if (rc != PULL_OK)
         return rc;
 
-    start = GetTickCount();
+    start = ct_monotonic_ms();
     for (;;) {
-        now = GetTickCount();
-        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
+        now = ct_monotonic_ms();
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
 
         rc = j1939_read_payload(ctx,
                                 incoming,
                                 sizeof(incoming),
                                 &incoming_len,
-                                timeout_ms - (unsigned long)(DWORD)(now - start));
+                                timeout_ms - (unsigned long)(unsigned long)(now - start));
         if (rc != PULL_OK)
             return rc;
 
@@ -1420,7 +1420,7 @@ cal_run_protocol_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
         return rc;
 
     /* reference tool waits while other connection setup work runs. */
-    Sleep(250);
+    ct_sleep_ms(250);
 
     PREFLIGHT_QUERY(0x002226UL); /* seq 05 */
 
@@ -1479,7 +1479,7 @@ cal_run_upload_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
     UPREF_QUERY(0x002295UL); /* 03 */
     rc = cal_enter_0b_state(ctx, sequence, 1); /* 04 */
     if (rc != PULL_OK) return rc;
-    Sleep(250);
+    ct_sleep_ms(250);
     UPREF_QUERY(0x002226UL); /* 05 */
     rc = cal_query_tolerate_negative(ctx, sequence, 0x002282UL); /* 06 */
     if (rc != PULL_OK) return rc;
@@ -1611,7 +1611,7 @@ cal_end_phase(struct pull_ctx *ctx)
                         request,
                         sizeof(request));
     if (rc == PULL_OK)
-        Sleep(20);
+        ct_sleep_ms(20);
     return rc;
 }
 
@@ -1796,12 +1796,13 @@ collect_metadata(struct pull_ctx *ctx,
     safe_copy(meta->harness_compat, "0000000000000000",
               sizeof(meta->harness_compat));
     {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
+        unsigned int year;
+
+        ct_get_local_date(&year, NULL, NULL);
         sprintf(meta->file_descriptor,
                 "Copyright %04u - Generated Calibration Data - "
                 "Phase 22.60.70.02 - GTIS4.5",
-                (unsigned int)st.wYear);
+                year);
     }
 
     rc = query_meta_required(ctx, sequence,
@@ -1890,11 +1891,11 @@ collect_metadata(struct pull_ctx *ctx,
     ascii[0] = '\0';
     extract_longest_ascii(data, len, ascii, sizeof(ascii));
     if (ascii[0] != '\0') {
-        if (_stricmp(ascii, "big") == 0 ||
-            _stricmp(ascii, "bigendian") == 0)
+        if (ct_stricmp(ascii, "big") == 0 ||
+            ct_stricmp(ascii, "bigendian") == 0)
             safe_copy(meta->byte_order, "BigEndian", sizeof(meta->byte_order));
-        else if (_stricmp(ascii, "little") == 0 ||
-                 _stricmp(ascii, "littleendian") == 0)
+        else if (ct_stricmp(ascii, "little") == 0 ||
+                 ct_stricmp(ascii, "littleendian") == 0)
             safe_copy(meta->byte_order, "LittleEndian", sizeof(meta->byte_order));
     } else if (len != 0U && all_zero(data, len)) {
         safe_copy(meta->byte_order, "BigEndian", sizeof(meta->byte_order));
@@ -2161,7 +2162,7 @@ pull_memory_ranges(struct pull_ctx *ctx,
              * the same instead of issuing the next guaranteed read less than
              * a millisecond after the preceding reply.
              */
-            Sleep(35);
+            ct_sleep_ms(35);
 
             percent = 15 + (int)((done * 70U) / total);
             if (percent > 85)
@@ -2511,7 +2512,7 @@ write_elite_ccal(const char *path, const struct pull_image *image)
         ok = 0;
 
     if (!ok) {
-        DeleteFileA(path);
+        (void)remove(path);
         set_last_error_text("Failed while writing destination ENI .ccal file.");
         return PULL_ERR_FILE;
     }
@@ -2616,7 +2617,9 @@ write_ccal(const char *path,
            const struct pull_image *image)
 {
     FILE *fp;
-    SYSTEMTIME st;
+    unsigned int year;
+    unsigned int month;
+    unsigned int day;
     char creation_date[32];
     char cal_version[128];
     char module_name[128];
@@ -2634,11 +2637,11 @@ write_ccal(const char *path,
     if (path == NULL || meta == NULL || image == NULL)
         return PULL_ERR_ARGUMENT;
 
-    GetLocalTime(&st);
+    ct_get_local_date(&year, &month, &day);
     sprintf(creation_date, "%04u-%02u-%02u",
-            (unsigned int)st.wYear,
-            (unsigned int)st.wMonth,
-            (unsigned int)st.wDay);
+            year,
+            month,
+            day);
 
     xml_escape(meta->calibration_version, cal_version, sizeof(cal_version));
     xml_escape(meta->module_name, module_name, sizeof(module_name));
@@ -2709,7 +2712,7 @@ write_ccal(const char *path,
         ok = 0;
 
     if (!ok) {
-        DeleteFileA(path);
+        (void)remove(path);
         set_last_error_text("Failed while writing destination .ccal file.");
         return PULL_ERR_FILE;
     }
@@ -2754,7 +2757,7 @@ cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
     if (rc != PULL_OK)
         return rc;
 
-    Sleep(50);
+    ct_sleep_ms(50);
 
     /* Observed programming/loader transition: 12 <seq> 00 17 00. */
     rc = cal_enter_mode_value(ctx, sequence, 0x0017U, 0x00U); /* 21 */
@@ -2790,17 +2793,17 @@ raw_wait_prefix(struct pull_ctx *ctx,
 {
     clip_u8 rx[CLIP_WIRE_MAX];
     size_t rx_len;
-    DWORD start;
-    DWORD now;
+    unsigned long start;
+    unsigned long now;
     int rc;
 
     if (ctx == NULL || prefix == NULL || prefix_len == 0U)
         return PULL_ERR_ARGUMENT;
 
-    start = GetTickCount();
+    start = ct_monotonic_ms();
     for (;;) {
-        now = GetTickCount();
-        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
+        now = ct_monotonic_ms();
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
 
         rc = j1939_read_payload(ctx,
@@ -2874,7 +2877,7 @@ raw_loader_preamble(struct pull_ctx *ctx)
 #define RAW_STEP(req_, ans_) do { \
         rc = raw_exchange_prefix(ctx, (req_), sizeof(req_), (ans_), sizeof(ans_)); \
         if (rc != PULL_OK) return rc; \
-        Sleep(10); \
+        ct_sleep_ms(10); \
     } while (0)
 
     RAW_STEP(q_password, a_password);
@@ -3287,7 +3290,7 @@ rp1210_upload_ccal(const char *api_name,
        captured bytes from another session.  Instead allow the ECM the same
        startup interval and probe only with the idempotent raw-loader queries. */
     report_progress(&ctx, 24, "Waiting for calibration loader startup...");
-    Sleep(11000);
+    ct_sleep_ms(11000);
 
     report_progress(&ctx, 28, "Synchronizing with raw calibration loader...");
     {
@@ -3299,7 +3302,7 @@ rp1210_upload_ccal(const char *api_name,
                 break;
             clear_last_error();
             if (attempt != 3)
-                Sleep(2000);
+                ct_sleep_ms(2000);
         }
         if (rc != PULL_OK) {
             set_last_error_text(
