@@ -1,26 +1,29 @@
 /*
  * config_store.c
  *
- * Standalone C89 TOML-backed configuration store for the WinForms UI.
+ * Portable C89 TOML-backed UI configuration store.
  *
- * Deliberately isolated from all ECM/RP1210 code.  The file lives at:
- *
- *     %USERPROFILE%\\.config\\CalibrationTransfer\\config.toml
- *
- * This is a small, conservative TOML editor rather than an application-specific
- * settings struct.  It understands normal [table] headers and scalar values,
- * preserves unrecognized TOML/comments verbatim, and exposes raw get/set calls
- * so future UI features can use arrays/inline tables without coupling config
- * parsing to the protocol core.
+ * The parser/editor is shared by Windows and Android. Platform code only
+ * chooses the config path: Windows uses the historical
+ * ~/.config/CalibrationTransfer/config.toml location while Android passes its
+ * app-private files/config.toml path through ct_config_load_path().
  */
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <wchar.h>
+#else
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 #define CT_CONFIG_EXPORTS
 #include "config_store.h"
@@ -35,7 +38,7 @@ struct ct_line_store {
 };
 
 static struct ct_line_store g_store;
-static wchar_t g_path[CT_PATH_CAP];
+static char g_path[CT_PATH_CAP];
 static char g_last_error[CT_ERROR_CAP];
 static int g_loaded = 0;
 
@@ -256,6 +259,181 @@ ct_copy_text(char *out, int out_size, const char *text)
     out[n] = '\0';
     return 1;
 }
+
+static int
+ct_ascii_stricmp(const char *a, const char *b)
+{
+    int ca;
+    int cb;
+
+    if (a == NULL)
+        a = "";
+    if (b == NULL)
+        b = "";
+
+    for (;;) {
+        ca = tolower((unsigned char)*a);
+        cb = tolower((unsigned char)*b);
+
+        if (ca != cb || ca == 0 || cb == 0)
+            return ca - cb;
+
+        ++a;
+        ++b;
+    }
+}
+
+#ifdef _WIN32
+static int
+ct_utf8_to_wide(const char *text, wchar_t *out, int out_count)
+{
+    int required;
+
+    if (text == NULL || out == NULL || out_count <= 0)
+        return 0;
+
+    required = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text,
+        -1,
+        out,
+        out_count);
+
+    if (required == 0)
+        out[0] = L'\0';
+
+    return required != 0;
+}
+
+static FILE *
+ct_fopen_path(const char *path, const char *mode)
+{
+    wchar_t wide_path[CT_PATH_CAP];
+    wchar_t wide_mode[16];
+
+    if (!ct_utf8_to_wide(path, wide_path, CT_PATH_CAP) ||
+        !ct_utf8_to_wide(mode, wide_mode, 16)) {
+        return NULL;
+    }
+
+    return _wfopen(wide_path, wide_mode);
+}
+
+static int
+ct_remove_path(const char *path)
+{
+    wchar_t wide_path[CT_PATH_CAP];
+
+    if (!ct_utf8_to_wide(path, wide_path, CT_PATH_CAP))
+        return 0;
+
+    return DeleteFileW(wide_path) != 0;
+}
+
+static int
+ct_replace_path(const char *from, const char *to)
+{
+    wchar_t wide_from[CT_PATH_CAP];
+    wchar_t wide_to[CT_PATH_CAP];
+
+    if (!ct_utf8_to_wide(from, wide_from, CT_PATH_CAP) ||
+        !ct_utf8_to_wide(to, wide_to, CT_PATH_CAP)) {
+        return 0;
+    }
+
+    return MoveFileExW(
+        wide_from,
+        wide_to,
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+}
+
+static int
+ct_mkdir_path(const char *path)
+{
+    wchar_t wide_path[CT_PATH_CAP];
+    DWORD error;
+
+    if (!ct_utf8_to_wide(path, wide_path, CT_PATH_CAP))
+        return 0;
+
+    if (CreateDirectoryW(wide_path, NULL))
+        return 1;
+
+    error = GetLastError();
+    return error == ERROR_ALREADY_EXISTS;
+}
+
+static unsigned long
+ct_process_id(void)
+{
+    return (unsigned long)GetCurrentProcessId();
+}
+
+static int
+ct_get_windows_home(char *out, int out_size)
+{
+    wchar_t wide_home[CT_PATH_CAP];
+    DWORD count;
+    int required;
+
+    if (out == NULL || out_size <= 0)
+        return 0;
+
+    count = GetEnvironmentVariableW(
+        L"USERPROFILE",
+        wide_home,
+        (DWORD)CT_PATH_CAP);
+
+    if (count == 0U || count >= (DWORD)CT_PATH_CAP)
+        return 0;
+
+    required = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wide_home,
+        -1,
+        out,
+        out_size,
+        NULL,
+        NULL);
+
+    return required != 0;
+}
+#else
+static FILE *
+ct_fopen_path(const char *path, const char *mode)
+{
+    return fopen(path, mode);
+}
+
+static int
+ct_remove_path(const char *path)
+{
+    return remove(path) == 0;
+}
+
+static int
+ct_replace_path(const char *from, const char *to)
+{
+    return rename(from, to) == 0;
+}
+
+static int
+ct_mkdir_path(const char *path)
+{
+    if (mkdir(path, 0700) == 0)
+        return 1;
+
+    return errno == EEXIST;
+}
+
+static unsigned long
+ct_process_id(void)
+{
+    return (unsigned long)getpid();
+}
+#endif
 
 static int
 ct_is_name_char(int ch)
@@ -536,62 +714,106 @@ ct_get_raw_internal(const char *section,
 }
 
 static int
-ct_build_default_path(void)
+ct_join_path(char *out,
+             int out_size,
+             const char *left,
+             const char *separator,
+             const char *right)
 {
-    wchar_t home[CT_PATH_CAP];
-    wchar_t config_dir[CT_PATH_CAP];
-    DWORD n;
-    int written;
+    size_t need;
 
-    n = GetEnvironmentVariableW(L"USERPROFILE",
-                                home,
-                                (DWORD)(sizeof(home) / sizeof(home[0])));
-    if (n == 0U || n >= (DWORD)(sizeof(home) / sizeof(home[0]))) {
+    if (out == NULL || out_size <= 0 ||
+        left == NULL || separator == NULL || right == NULL) {
+        return 0;
+    }
+
+    need = strlen(left) + strlen(separator) + strlen(right) + 1U;
+    if (need > (size_t)out_size)
+        return 0;
+
+    strcpy(out, left);
+    strcat(out, separator);
+    strcat(out, right);
+    return 1;
+}
+
+static int
+ct_build_default_path(char *out, int out_size)
+{
+    char base[CT_PATH_CAP];
+    char config_dir[CT_PATH_CAP];
+    char app_dir[CT_PATH_CAP];
+
+#ifdef _WIN32
+    if (!ct_get_windows_home(base, (int)sizeof(base))) {
         ct_set_error("USERPROFILE is unavailable; cannot resolve ~/.config.");
         return 0;
     }
 
-    written = _snwprintf(config_dir,
-                         sizeof(config_dir) / sizeof(config_dir[0]),
-                         L"%ls\\.config",
-                         home);
-    if (written < 0 ||
-        written >= (int)(sizeof(config_dir) / sizeof(config_dir[0]))) {
-        ct_set_error("Configuration directory path is too long.");
+    if (!ct_join_path(config_dir,
+                      (int)sizeof(config_dir),
+                      base,
+                      "\\",
+                      ".config") ||
+        !ct_mkdir_path(config_dir) ||
+        !ct_join_path(app_dir,
+                      (int)sizeof(app_dir),
+                      config_dir,
+                      "\\",
+                      "CalibrationTransfer") ||
+        !ct_mkdir_path(app_dir) ||
+        !ct_join_path(out,
+                      out_size,
+                      app_dir,
+                      "\\",
+                      "config.toml")) {
+        ct_set_error("Unable to create the default configuration path.");
         return 0;
+    }
+#else
+    const char *home;
+    const char *xdg;
+
+    xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg != NULL && xdg[0] != '\0') {
+        if (strlen(xdg) >= sizeof(config_dir)) {
+            ct_set_error("XDG_CONFIG_HOME is too long.");
+            return 0;
+        }
+        strcpy(config_dir, xdg);
+    } else {
+        home = getenv("HOME");
+        if (home == NULL || home[0] == '\0') {
+            ct_set_error("HOME is unavailable; cannot resolve ~/.config.");
+            return 0;
+        }
+
+        if (!ct_join_path(config_dir,
+                          (int)sizeof(config_dir),
+                          home,
+                          "/",
+                          ".config")) {
+            ct_set_error("Configuration directory path is too long.");
+            return 0;
+        }
     }
 
-    if (!CreateDirectoryW(config_dir, NULL) &&
-        GetLastError() != ERROR_ALREADY_EXISTS) {
-        ct_set_error("Unable to create ~/.config.");
+    if (!ct_mkdir_path(config_dir) ||
+        !ct_join_path(app_dir,
+                      (int)sizeof(app_dir),
+                      config_dir,
+                      "/",
+                      "CalibrationTransfer") ||
+        !ct_mkdir_path(app_dir) ||
+        !ct_join_path(out,
+                      out_size,
+                      app_dir,
+                      "/",
+                      "config.toml")) {
+        ct_set_error("Unable to create the default configuration path.");
         return 0;
     }
-
-    written = _snwprintf(g_path,
-                         sizeof(g_path) / sizeof(g_path[0]),
-                         L"%ls\\CalibrationTransfer",
-                         config_dir);
-    if (written < 0 ||
-        written >= (int)(sizeof(g_path) / sizeof(g_path[0]))) {
-        ct_set_error("Configuration directory path is too long.");
-        return 0;
-    }
-
-    if (!CreateDirectoryW(g_path, NULL) &&
-        GetLastError() != ERROR_ALREADY_EXISTS) {
-        ct_set_error("Unable to create ~/.config/CalibrationTransfer.");
-        return 0;
-    }
-
-    written = _snwprintf(g_path,
-                         sizeof(g_path) / sizeof(g_path[0]),
-                         L"%ls\\CalibrationTransfer\\config.toml",
-                         config_dir);
-    if (written < 0 ||
-        written >= (int)(sizeof(g_path) / sizeof(g_path[0]))) {
-        ct_set_error("Configuration file path is too long.");
-        return 0;
-    }
+#endif
 
     return 1;
 }
@@ -601,31 +823,44 @@ ct_append_default_header(void)
 {
     if (!ct_store_append("# CalibrationTransfer user configuration"))
         return 0;
-    if (!ct_store_append("# ~/.config/CalibrationTransfer/config.toml"))
+    if (!ct_store_append("# Managed by the shared C89 configuration store"))
         return 0;
     return 1;
 }
 
 int CT_CONFIG_CALL
-ct_config_load_default(void)
+ct_config_load_path(const char *path)
 {
     FILE *fp;
     char *line;
+    size_t n;
 
     ct_store_clear();
     g_loaded = 0;
-    g_path[0] = L'\0';
+    g_path[0] = '\0';
     ct_set_error("");
 
-    if (!ct_build_default_path())
+    if (path == NULL || path[0] == '\0') {
+        ct_set_error("Configuration path is empty.");
         return -1;
+    }
 
-    fp = _wfopen(g_path, L"rb");
+    n = strlen(path);
+    if (n >= sizeof(g_path)) {
+        ct_set_error("Configuration path is too long.");
+        return -1;
+    }
+
+    memcpy(g_path, path, n + 1U);
+
+    fp = ct_fopen_path(g_path, "rb");
     if (fp == NULL) {
         if (!ct_append_default_header()) {
+            g_path[0] = '\0';
             ct_set_error("Out of memory while creating default configuration.");
             return -1;
         }
+
         g_loaded = 1;
         return 0;
     }
@@ -639,6 +874,7 @@ ct_config_load_default(void)
             free(line);
             fclose(fp);
             ct_store_clear();
+            g_path[0] = '\0';
             ct_set_error("Out of memory while loading configuration.");
             return -1;
         }
@@ -648,6 +884,7 @@ ct_config_load_default(void)
     if (ferror(fp)) {
         fclose(fp);
         ct_store_clear();
+        g_path[0] = '\0';
         ct_set_error("Error while reading config.toml.");
         return -1;
     }
@@ -655,6 +892,20 @@ ct_config_load_default(void)
     fclose(fp);
     g_loaded = 1;
     return 0;
+}
+
+int CT_CONFIG_CALL
+ct_config_load_default(void)
+{
+    char path[CT_PATH_CAP];
+
+    path[0] = '\0';
+    ct_set_error("");
+
+    if (!ct_build_default_path(path, (int)sizeof(path)))
+        return -1;
+
+    return ct_config_load_path(path);
 }
 
 static int
@@ -871,11 +1122,11 @@ ct_config_get_bool(const char *section,
         return 0;
     }
 
-    if (_stricmp(raw, "true") == 0) {
+    if (ct_ascii_stricmp(raw, "true") == 0) {
         *out_value = 1;
         return 1;
     }
-    if (_stricmp(raw, "false") == 0) {
+    if (ct_ascii_stricmp(raw, "false") == 0) {
         *out_value = 0;
         return 1;
     }
@@ -1024,38 +1275,45 @@ ct_config_set_bool(const char *section,
 int CT_CONFIG_CALL
 ct_config_save(void)
 {
-    wchar_t temp_path[CT_PATH_CAP];
+    char temp_path[CT_PATH_CAP];
     FILE *fp;
     size_t i;
-    int written;
+    size_t need;
     int ok;
+    const char *line_end;
 
-    if (!g_loaded || g_path[0] == L'\0') {
+    if (!g_loaded || g_path[0] == '\0') {
         ct_set_error("Configuration has not been loaded.");
         return -1;
     }
 
-    written = _snwprintf(temp_path,
-                         sizeof(temp_path) / sizeof(temp_path[0]),
-                         L"%ls.%lu.tmp",
-                         g_path,
-                         (unsigned long)GetCurrentProcessId());
-    if (written < 0 ||
-        written >= (int)(sizeof(temp_path) / sizeof(temp_path[0]))) {
+    need = strlen(g_path) + 32U;
+    if (need > sizeof(temp_path)) {
         ct_set_error("Temporary configuration path is too long.");
         return -1;
     }
 
-    fp = _wfopen(temp_path, L"wb");
+    sprintf(temp_path,
+            "%s.%lu.tmp",
+            g_path,
+            ct_process_id());
+
+    fp = ct_fopen_path(temp_path, "wb");
     if (fp == NULL) {
         ct_set_error("Unable to open temporary config.toml for writing.");
         return -1;
     }
 
+#ifdef _WIN32
+    line_end = "\r\n";
+#else
+    line_end = "\n";
+#endif
+
     ok = 1;
     for (i = 0U; i < g_store.count; ++i) {
         if (fputs(g_store.line[i], fp) == EOF ||
-            fputs("\r\n", fp) == EOF) {
+            fputs(line_end, fp) == EOF) {
             ok = 0;
             break;
         }
@@ -1067,15 +1325,13 @@ ct_config_save(void)
         ok = 0;
 
     if (!ok) {
-        DeleteFileW(temp_path);
+        ct_remove_path(temp_path);
         ct_set_error("Failed while writing config.toml.");
         return -1;
     }
 
-    if (!MoveFileExW(temp_path,
-                     g_path,
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        DeleteFileW(temp_path);
+    if (!ct_replace_path(temp_path, g_path)) {
+        ct_remove_path(temp_path);
         ct_set_error("Unable to atomically replace config.toml.");
         return -1;
     }
@@ -1089,31 +1345,17 @@ ct_config_close(void)
 {
     ct_store_clear();
     g_loaded = 0;
-    g_path[0] = L'\0';
+    g_path[0] = '\0';
     ct_set_error("");
 }
 
 int CT_CONFIG_CALL
 ct_config_get_path(char *out, int out_size)
 {
-    int required;
-
-    if (out == NULL || out_size <= 0 || g_path[0] == L'\0')
+    if (!g_loaded || g_path[0] == '\0')
         return 0;
 
-    required = WideCharToMultiByte(CP_UTF8,
-                                   0,
-                                   g_path,
-                                   -1,
-                                   out,
-                                   out_size,
-                                   NULL,
-                                   NULL);
-    if (required == 0) {
-        out[0] = '\0';
-        return 0;
-    }
-    return 1;
+    return ct_copy_text(out, out_size, g_path);
 }
 
 int CT_CONFIG_CALL

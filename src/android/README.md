@@ -95,3 +95,27 @@ The screen mirrors the Windows utility:
 Android additionally has Refresh Paired, Scan Bluetooth, and Pair controls. Discovery filters out ordinary speakers/headphones and only lists names that look like supported diagnostic adapters.
 
 Pull uses Android's document creator and Upload uses Android's document picker. The native C core always works on an app-private temporary file; the Java layer copies to/from the selected Android document URI.
+
+
+## Configuration
+
+Android uses the same C89 TOML parser/editor as the Windows build. The Java UI
+passes `getFilesDir()/config.toml` to the native config store through JNI, so
+no storage permission is required.
+
+The Android settings are stored as:
+
+```toml
+[adapter]
+api = "NULN3R32"
+baud = 250000
+mac = "B8:F4:4F:20:B7:F8"
+
+[j1939]
+tool_sa = 0xFA
+ecm_sa = 0x00
+```
+
+Existing installs using the old Android `SharedPreferences` settings are
+migrated into `config.toml` on the first launch after upgrading. After that,
+all persistence goes through `src/core/config_store.c`.

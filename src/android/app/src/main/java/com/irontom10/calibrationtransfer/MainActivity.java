@@ -137,6 +137,7 @@ public final class MainActivity extends Activity {
     private boolean restartDiscoveryAfterFinish;
     private boolean discoveryRetryPending;
     private volatile boolean busy;
+    private boolean configLoaded;
 
     private Spinner driverSpinner;
     private Spinner deviceSpinner;
@@ -257,7 +258,11 @@ public final class MainActivity extends Activity {
         if (hasBluetoothPermissions())
             refreshPairedDevices();
 
-        setStatus("Ready.");
+        if (configLoaded)
+            setStatus("Ready. Settings: " + nativeBridge.configGetPath());
+        else
+            setStatus("Configuration unavailable: " +
+                    nativeBridge.configGetLastError());
     }
 
     private void buildUi() {
@@ -1381,16 +1386,13 @@ public final class MainActivity extends Activity {
         receiverRegistered = true;
     }
 
-    private void loadSettings() {
-        SharedPreferences p = getSharedPreferences(
-                "calibration_transfer",
-                MODE_PRIVATE);
-
-        String api = p.getString("api", "NULN3R32");
-        String baud = p.getString("baud", "250000");
-        String toolSa = p.getString("tool_sa", "FA");
-        String ecmSa = p.getString("ecm_sa", "00");
-        String mac = p.getString("mac", "");
+    private void applySettings(
+            String api,
+            int baud,
+            int toolSa,
+            int ecmSa,
+            String mac) {
+        String baudText = baud == 0 ? "Auto" : String.valueOf(baud);
 
         for (int i = 0; i < DRIVERS.length; ++i) {
             if (DRIVERS[i].api.equalsIgnoreCase(api)) {
@@ -1401,28 +1403,155 @@ public final class MainActivity extends Activity {
 
         for (int i = 0; i < baudSpinner.getCount(); ++i) {
             if (String.valueOf(baudSpinner.getItemAtPosition(i))
-                    .equalsIgnoreCase(baud)) {
+                    .equalsIgnoreCase(baudText)) {
                 baudSpinner.setSelection(i);
                 break;
             }
         }
 
-        toolSaEdit.setText(toolSa);
-        ecmSaEdit.setText(ecmSa);
-        macEdit.setText(mac);
+        toolSaEdit.setText(String.format(Locale.US, "%02X", toolSa & 0xFF));
+        ecmSaEdit.setText(String.format(Locale.US, "%02X", ecmSa & 0xFF));
+        macEdit.setText(mac == null ? "" : mac);
     }
 
-    private void saveSettings() {
-        SharedPreferences.Editor e = getSharedPreferences(
-                "calibration_transfer",
-                MODE_PRIVATE).edit();
+    private int legacyBaud(String value) {
+        if (value == null || "Auto".equalsIgnoreCase(value))
+            return 0;
 
-        e.putString("api", selectedDriver().api);
-        e.putString("baud", String.valueOf(baudSpinner.getSelectedItem()));
-        e.putString("tool_sa", toolSaEdit.getText().toString().trim());
-        e.putString("ecm_sa", ecmSaEdit.getText().toString().trim());
-        e.putString("mac", macEdit.getText().toString().trim());
-        e.apply();
+        try {
+            return Integer.parseInt(value);
+        }
+        catch (NumberFormatException e) {
+            return 250000;
+        }
+    }
+
+    private int legacyHexByte(String value, int defaultValue) {
+        try {
+            return Integer.parseInt(value == null ? "" : value.trim(), 16);
+        }
+        catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private boolean migrateLegacyPreferences() {
+        SharedPreferences p = getSharedPreferences(
+                "calibration_transfer",
+                MODE_PRIVATE);
+
+        if (!p.contains("api") &&
+            !p.contains("baud") &&
+            !p.contains("tool_sa") &&
+            !p.contains("ecm_sa") &&
+            !p.contains("mac")) {
+            return false;
+        }
+
+        applySettings(
+                p.getString("api", "NULN3R32"),
+                legacyBaud(p.getString("baud", "250000")),
+                legacyHexByte(p.getString("tool_sa", "FA"), 0xFA),
+                legacyHexByte(p.getString("ecm_sa", "00"), 0x00),
+                p.getString("mac", ""));
+
+        if (!saveSettings())
+            return false;
+
+        p.edit().clear().apply();
+        return true;
+    }
+
+    private void loadSettings() {
+        File configFile = new File(getFilesDir(), "config.toml");
+        boolean migrateLegacy = !configFile.exists();
+
+        configLoaded =
+                nativeBridge.configLoad(configFile.getAbsolutePath()) == 0;
+
+        if (!configLoaded)
+            return;
+
+        if (migrateLegacy && migrateLegacyPreferences())
+            return;
+
+        applySettings(
+                nativeBridge.configGetString(
+                        "adapter",
+                        "api",
+                        "NULN3R32"),
+                nativeBridge.configGetInt(
+                        "adapter",
+                        "baud",
+                        250000),
+                nativeBridge.configGetInt(
+                        "j1939",
+                        "tool_sa",
+                        0xFA),
+                nativeBridge.configGetInt(
+                        "j1939",
+                        "ecm_sa",
+                        0x00),
+                nativeBridge.configGetString(
+                        "adapter",
+                        "mac",
+                        ""));
+    }
+
+    private boolean saveSettings() {
+        int toolSa;
+        int ecmSa;
+        int rc;
+
+        if (!configLoaded)
+            return false;
+
+        try {
+            toolSa = parseHexByte(toolSaEdit, "Tool SA");
+            ecmSa = parseHexByte(ecmSaEdit, "ECM SA");
+        }
+        catch (IllegalArgumentException e) {
+            return false;
+        }
+
+        rc = nativeBridge.configSetString(
+                "adapter",
+                "api",
+                selectedDriver().api);
+        if (rc == 0) {
+            rc = nativeBridge.configSetInt(
+                    "adapter",
+                    "baud",
+                    selectedBaud());
+        }
+        if (rc == 0) {
+            rc = nativeBridge.configSetString(
+                    "adapter",
+                    "mac",
+                    macEdit.getText().toString().trim());
+        }
+        if (rc == 0) {
+            rc = nativeBridge.configSetRaw(
+                    "j1939",
+                    "tool_sa",
+                    String.format(Locale.US, "0x%02X", toolSa));
+        }
+        if (rc == 0) {
+            rc = nativeBridge.configSetRaw(
+                    "j1939",
+                    "ecm_sa",
+                    String.format(Locale.US, "0x%02X", ecmSa));
+        }
+        if (rc == 0)
+            rc = nativeBridge.configSave();
+
+        if (rc != 0) {
+            setStatus("Could not save config.toml: " +
+                    nativeBridge.configGetLastError());
+            return false;
+        }
+
+        return true;
     }
 
     private void restoreSelectedMac() {
@@ -1466,6 +1595,11 @@ public final class MainActivity extends Activity {
             }
             catch (Throwable ignored) {
             }
+        }
+
+        if (configLoaded) {
+            nativeBridge.configClose();
+            configLoaded = false;
         }
 
         super.onDestroy();

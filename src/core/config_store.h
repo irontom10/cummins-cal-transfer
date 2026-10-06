@@ -18,19 +18,15 @@ extern "C" {
 #endif
 
 /*
- * Standalone TOML-backed UI configuration store.
+ * Portable TOML-backed UI configuration store.
  *
- * This module is intentionally independent of the RP1210/protocol core.
- * It owns only:
- *   ~/.config/CalibrationTransfer/config.toml
- *
- * The API is generic: sections and keys are supplied by the caller so future
- * UI settings do not require changes to this library.  Typed helpers cover the
- * common scalar TOML values and the raw helpers leave room for arrays/inline
- * tables or other TOML values later.
+ * The parser/editor is platform independent.  ct_config_load_default() keeps
+ * the historical desktop location, while ct_config_load_path() lets Android
+ * use its app-private files directory without teaching the config layer about
+ * Java/Android APIs.
  */
-
 CT_CONFIG_API int CT_CONFIG_CALL ct_config_load_default(void);
+CT_CONFIG_API int CT_CONFIG_CALL ct_config_load_path(const char *path);
 CT_CONFIG_API int CT_CONFIG_CALL ct_config_save(void);
 CT_CONFIG_API void CT_CONFIG_CALL ct_config_close(void);
 

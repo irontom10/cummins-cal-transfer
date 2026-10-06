@@ -9,6 +9,7 @@
 
 #include "rp1210_android.h"
 #include "rp1210clip.h"
+#include "config_store.h"
 
 static JavaVM *g_vm = NULL;
 static jobject g_progress_target = NULL;
@@ -149,6 +150,287 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configureRp1210(
     (*env)->ReleaseStringUTFChars(env, mac_address, mac);
 
     return ok ? 1 : 0;
+}
+
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configLoad(
+    JNIEnv *env,
+    jobject self,
+    jstring path_string)
+{
+    const char *path;
+    int rc;
+
+    (void)self;
+
+    if (path_string == NULL)
+        return -1;
+
+    path = (*env)->GetStringUTFChars(env, path_string, NULL);
+    if (path == NULL)
+        return -1;
+
+    rc = ct_config_load_path(path);
+    (*env)->ReleaseStringUTFChars(env, path_string, path);
+    return (jint)rc;
+}
+
+JNIEXPORT void JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configClose(
+    JNIEnv *env,
+    jobject self)
+{
+    (void)env;
+    (void)self;
+    ct_config_close();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configGetString(
+    JNIEnv *env,
+    jobject self,
+    jstring section_string,
+    jstring key_string,
+    jstring default_string)
+{
+    const char *section;
+    const char *key;
+    const char *default_value;
+    char value[4096];
+    jstring result;
+
+    (void)self;
+
+    if (section_string == NULL ||
+        key_string == NULL ||
+        default_string == NULL) {
+        return (*env)->NewStringUTF(env, "");
+    }
+
+    section = (*env)->GetStringUTFChars(env, section_string, NULL);
+    key = (*env)->GetStringUTFChars(env, key_string, NULL);
+    default_value = (*env)->GetStringUTFChars(env, default_string, NULL);
+
+    if (section == NULL || key == NULL || default_value == NULL) {
+        if (section != NULL)
+            (*env)->ReleaseStringUTFChars(env, section_string, section);
+        if (key != NULL)
+            (*env)->ReleaseStringUTFChars(env, key_string, key);
+        if (default_value != NULL)
+            (*env)->ReleaseStringUTFChars(env, default_string, default_value);
+        return (*env)->NewStringUTF(env, "");
+    }
+
+    value[0] = '\0';
+    ct_config_get_string(
+        section,
+        key,
+        default_value,
+        value,
+        (int)sizeof(value));
+
+    result = (*env)->NewStringUTF(env, value);
+
+    (*env)->ReleaseStringUTFChars(env, section_string, section);
+    (*env)->ReleaseStringUTFChars(env, key_string, key);
+    (*env)->ReleaseStringUTFChars(env, default_string, default_value);
+    return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configGetInt(
+    JNIEnv *env,
+    jobject self,
+    jstring section_string,
+    jstring key_string,
+    jint default_value)
+{
+    const char *section;
+    const char *key;
+    long value;
+
+    (void)self;
+
+    if (section_string == NULL || key_string == NULL)
+        return default_value;
+
+    section = (*env)->GetStringUTFChars(env, section_string, NULL);
+    key = (*env)->GetStringUTFChars(env, key_string, NULL);
+
+    if (section == NULL || key == NULL) {
+        if (section != NULL)
+            (*env)->ReleaseStringUTFChars(env, section_string, section);
+        if (key != NULL)
+            (*env)->ReleaseStringUTFChars(env, key_string, key);
+        return default_value;
+    }
+
+    value = (long)default_value;
+    ct_config_get_int(section, key, value, &value);
+
+    (*env)->ReleaseStringUTFChars(env, section_string, section);
+    (*env)->ReleaseStringUTFChars(env, key_string, key);
+    return (jint)value;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configSetString(
+    JNIEnv *env,
+    jobject self,
+    jstring section_string,
+    jstring key_string,
+    jstring value_string)
+{
+    const char *section;
+    const char *key;
+    const char *value;
+    int rc;
+
+    (void)self;
+
+    if (section_string == NULL ||
+        key_string == NULL ||
+        value_string == NULL) {
+        return -1;
+    }
+
+    section = (*env)->GetStringUTFChars(env, section_string, NULL);
+    key = (*env)->GetStringUTFChars(env, key_string, NULL);
+    value = (*env)->GetStringUTFChars(env, value_string, NULL);
+
+    if (section == NULL || key == NULL || value == NULL) {
+        if (section != NULL)
+            (*env)->ReleaseStringUTFChars(env, section_string, section);
+        if (key != NULL)
+            (*env)->ReleaseStringUTFChars(env, key_string, key);
+        if (value != NULL)
+            (*env)->ReleaseStringUTFChars(env, value_string, value);
+        return -1;
+    }
+
+    rc = ct_config_set_string(section, key, value);
+
+    (*env)->ReleaseStringUTFChars(env, section_string, section);
+    (*env)->ReleaseStringUTFChars(env, key_string, key);
+    (*env)->ReleaseStringUTFChars(env, value_string, value);
+    return (jint)rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configSetInt(
+    JNIEnv *env,
+    jobject self,
+    jstring section_string,
+    jstring key_string,
+    jint value)
+{
+    const char *section;
+    const char *key;
+    int rc;
+
+    (void)self;
+
+    if (section_string == NULL || key_string == NULL)
+        return -1;
+
+    section = (*env)->GetStringUTFChars(env, section_string, NULL);
+    key = (*env)->GetStringUTFChars(env, key_string, NULL);
+
+    if (section == NULL || key == NULL) {
+        if (section != NULL)
+            (*env)->ReleaseStringUTFChars(env, section_string, section);
+        if (key != NULL)
+            (*env)->ReleaseStringUTFChars(env, key_string, key);
+        return -1;
+    }
+
+    rc = ct_config_set_int(section, key, (long)value);
+
+    (*env)->ReleaseStringUTFChars(env, section_string, section);
+    (*env)->ReleaseStringUTFChars(env, key_string, key);
+    return (jint)rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configSetRaw(
+    JNIEnv *env,
+    jobject self,
+    jstring section_string,
+    jstring key_string,
+    jstring value_string)
+{
+    const char *section;
+    const char *key;
+    const char *value;
+    int rc;
+
+    (void)self;
+
+    if (section_string == NULL ||
+        key_string == NULL ||
+        value_string == NULL) {
+        return -1;
+    }
+
+    section = (*env)->GetStringUTFChars(env, section_string, NULL);
+    key = (*env)->GetStringUTFChars(env, key_string, NULL);
+    value = (*env)->GetStringUTFChars(env, value_string, NULL);
+
+    if (section == NULL || key == NULL || value == NULL) {
+        if (section != NULL)
+            (*env)->ReleaseStringUTFChars(env, section_string, section);
+        if (key != NULL)
+            (*env)->ReleaseStringUTFChars(env, key_string, key);
+        if (value != NULL)
+            (*env)->ReleaseStringUTFChars(env, value_string, value);
+        return -1;
+    }
+
+    rc = ct_config_set_raw(section, key, value);
+
+    (*env)->ReleaseStringUTFChars(env, section_string, section);
+    (*env)->ReleaseStringUTFChars(env, key_string, key);
+    (*env)->ReleaseStringUTFChars(env, value_string, value);
+    return (jint)rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configSave(
+    JNIEnv *env,
+    jobject self)
+{
+    (void)env;
+    (void)self;
+    return (jint)ct_config_save();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configGetPath(
+    JNIEnv *env,
+    jobject self)
+{
+    char buffer[4096];
+
+    (void)self;
+
+    buffer[0] = '\0';
+    ct_config_get_path(buffer, (int)sizeof(buffer));
+    return (*env)->NewStringUTF(env, buffer);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configGetLastError(
+    JNIEnv *env,
+    jobject self)
+{
+    char buffer[512];
+
+    (void)self;
+
+    buffer[0] = '\0';
+    ct_config_get_last_error(buffer, (int)sizeof(buffer));
+    return (*env)->NewStringUTF(env, buffer);
 }
 
 static jint

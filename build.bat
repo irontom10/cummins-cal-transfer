@@ -98,7 +98,7 @@ if errorlevel 1 goto :fail_from_obj
 echo [2/4] Building standalone UI config store...
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
     /Fo:config_store.obj ^
-    "%SRC_WIN_NATIVE%\config_store.c"
+    "%SRC_CORE%\config_store.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /DLL /MACHINE:X86 ^

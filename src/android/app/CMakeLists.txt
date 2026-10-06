@@ -9,6 +9,7 @@ add_library(caltransfer SHARED
     src/main/cpp/rp1210_transport_android.c
 
     ../../core/ct_platform.c
+    ../../core/config_store.c
     ../../core/j1939_transport.c
     ../../core/clip_transfer.c
     ../../core/echo_transfer.c

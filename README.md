@@ -26,6 +26,7 @@ The repository is now organized around one platform-independent C89 protocol cor
     │   ├── clip_cal.c/.h
     │   ├── clip_crypto.c/.h
     │   ├── ccal_crc.c/.h
+    │   ├── config_store.c/.h
     │   ├── clip_transfer.c
     │   ├── echo_transfer.c/.h
     │   ├── j1939_transport.c/.h
@@ -44,7 +45,7 @@ The repository is now organized around one platform-independent C89 protocol cor
     │   ├── native/
     │   │   ├── rp1210_transport.c
     │   │   ├── rp1210scan.c/.def
-    │   │   └── config_store.c/.h/.def
+    │   │   └── config_store.def
     │   └── tools/
     │       └── crc_call.c
     └── android/
@@ -111,17 +112,26 @@ build/
 
 ## Configuration
 
-The WinForms UI persists its own settings at:
+Windows and Android now use the same portable C89 TOML configuration store.
+
+Windows keeps the historical location:
 
 ```text
-~/.config/CalibrationTransfer/config.toml
+%USERPROFILE%\.config\CalibrationTransfer\config.toml
 ```
 
-On Windows this resolves to `%USERPROFILE%\.config\CalibrationTransfer\config.toml`.
+Android uses the app-private file:
 
-Configuration is intentionally isolated from the ECM/RP1210 core. A standalone
-native `ctconfig.dll` owns the TOML file and is embedded in the single-file UI
-executable. The C# UI accesses it only through the small C ABI wrapper.
+```text
+/data/user/0/com.irontom10.calibrationtransfer/files/config.toml
+```
+
+(the exact Android app-data prefix is assigned by Android; the app obtains it
+from `getFilesDir()` rather than hard-coding it).
+
+The parser/editor lives in `src/core/config_store.c`. Windows exposes it
+through the embedded `ctconfig.dll`; Android calls the same implementation
+through JNI. Unknown TOML lines and comments are preserved on both platforms.
 
 Current settings:
 
@@ -130,6 +140,7 @@ Current settings:
 api = "NULN3R32"
 device = 2
 baud = 250000
+mac = "B8:F4:4F:20:B7:F8"
 
 [j1939]
 tool_sa = 0xFA
@@ -140,7 +151,9 @@ Set `baud = 0` to request RP1210 automatic bitrate detection (`J1939:Baud=Auto`)
 
 The native config API is section/key based rather than tied to this schema, so
 future UI settings can be added without coupling them to the protocol code.
-Unknown TOML lines and comments are preserved when the UI updates its settings.
+Windows currently uses `adapter.device`; Android uses `adapter.mac`. Because
+the editor preserves unknown keys, the same TOML schema can carry both without
+either front end destroying the other platform's settings.
 
 ## CRC utility
 
