@@ -145,7 +145,7 @@ if [ ! -f "$WRAPPER_JAR" ]; then
 fi
 
 echo "[android] Building Calibration Transfer APK..."
-sh "$ROOT/gradlew" clean assembleDebug
+sh "$ROOT/gradlew" -p "$ROOT" clean assembleDebug
 RC=$?
 
 if [ "$RC" -eq 0 ]; then
