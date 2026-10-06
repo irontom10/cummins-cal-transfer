@@ -3008,7 +3008,9 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
             rc = clip_authenticate(ctx);
             if (rc == PULL_OK) {
                 sequence = 0x00U;
-                rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                rc = cal_query_discard(ctx, &sequence, 0x002226UL);
+                if (rc == PULL_OK)
+                    rc = cal_query_discard(ctx, &sequence, 0x000084UL);
                 if (rc == PULL_OK) {
                     (void)clip_send_close(ctx);
                     close_j1939_transport(ctx);
