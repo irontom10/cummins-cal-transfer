@@ -4,8 +4,10 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "ROOT=%CD%"
-set "SRC_C=%ROOT%\src\c"
-set "SRC_CS=%ROOT%\src\cs"
+set "SRC_CORE=%ROOT%\src\core"
+set "SRC_WINDOWS=%ROOT%\src\windows"
+set "SRC_WIN_NATIVE=%SRC_WINDOWS%\native"
+set "SRC_WIN_TOOLS=%SRC_WINDOWS%\tools"
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
 set "NATIVE=%BUILD%\native"
@@ -72,20 +74,20 @@ if errorlevel 1 goto :fail
 echo [1/4] Building native RP1210, J1939, and calibration protocol core...
 pushd "%OBJ%"
 
-cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
-    "%SRC_C%\rp1210scan.c" ^
-    "%SRC_C%\rp1210_transport.c" ^
-    "%SRC_C%\j1939_transport.c" ^
-    "%SRC_C%\ct_platform.c" ^
-    "%SRC_C%\clip_transfer.c" ^
-    "%SRC_C%\echo_transfer.c" ^
-    "%SRC_C%\clip_crypto.c" ^
-    "%SRC_C%\clip_cal.c" ^
-    "%SRC_C%\ccal_crc.c"
+cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+    "%SRC_WIN_NATIVE%\rp1210scan.c" ^
+    "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
+    "%SRC_CORE%\j1939_transport.c" ^
+    "%SRC_CORE%\ct_platform.c" ^
+    "%SRC_CORE%\clip_transfer.c" ^
+    "%SRC_CORE%\echo_transfer.c" ^
+    "%SRC_CORE%\clip_crypto.c" ^
+    "%SRC_CORE%\clip_cal.c" ^
+    "%SRC_CORE%\ccal_crc.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /DLL /MACHINE:X86 ^
-    /DEF:"%SRC_C%\rp1210scan.def" ^
+    /DEF:"%SRC_WIN_NATIVE%\rp1210scan.def" ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
@@ -94,13 +96,13 @@ link /nologo /DLL /MACHINE:X86 ^
 if errorlevel 1 goto :fail_from_obj
 
 echo [2/4] Building standalone UI config store...
-cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
+cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
     /Fo:config_store.obj ^
-    "%SRC_C%\config_store.c"
+    "%SRC_WIN_NATIVE%\config_store.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /DLL /MACHINE:X86 ^
-    /DEF:"%SRC_C%\config_store.def" ^
+    /DEF:"%SRC_WIN_NATIVE%\config_store.def" ^
     /OUT:"%NATIVE%\ctconfig.dll" ^
     /IMPLIB:"%NATIVE%\ctconfig.lib" ^
     /PDB:"%NATIVE%\ctconfig.pdb" ^
@@ -108,7 +110,7 @@ link /nologo /DLL /MACHINE:X86 ^
 if errorlevel 1 goto :fail_from_obj
 
 echo [3/4] Building CRC utility...
-cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c "%SRC_C%\crc_call.c"
+cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /c "%SRC_WIN_TOOLS%\crc_call.c"
 if errorlevel 1 goto :fail_from_obj
 
 link /nologo /MACHINE:X86 ^
@@ -119,7 +121,7 @@ if errorlevel 1 goto :fail_from_obj
 popd
 
 echo [4/4] Publishing WinForms app...
-dotnet publish "%SRC_CS%\CalibrationTransfer.csproj" ^
+dotnet publish "%SRC_WINDOWS%\CalibrationTransfer.csproj" ^
     -c Release ^
     -r win-x86 ^
     --self-contained true ^

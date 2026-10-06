@@ -32,3 +32,10 @@ build/
 *.tmp
 *.bak
 *.orig
+
+# Android
+src/android/.gradle/
+src/android/local.properties
+src/android/app/build/
+src/android/app/.cxx/
+src/android/.idea/
