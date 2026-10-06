@@ -754,7 +754,9 @@ write_ccal(const char *path,
            const struct echo_image *image)
 {
     FILE *fp;
-    SYSTEMTIME st;
+    unsigned int year;
+    unsigned int month;
+    unsigned int day;
     unsigned char zero4[4];
     int ok;
 
@@ -767,7 +769,7 @@ write_ccal(const char *path,
         return ECHO_TRANSFER_ERR_FILE;
     }
 
-    GetLocalTime(&st);
+    ct_get_local_date(&year, &month, &day);
     memset(zero4, 0, sizeof(zero4));
 
     ok = 1;
@@ -791,9 +793,9 @@ write_ccal(const char *path,
                       meta->interface_level) < 0)
         ok = 0;
     if (ok && fprintf(fp, "CreationDate=%02u%02u%02u\r\n",
-                      (unsigned int)st.wMonth,
-                      (unsigned int)st.wDay,
-                      (unsigned int)(st.wYear % 100U)) < 0)
+                      month,
+                      day,
+                      year % 100U) < 0)
         ok = 0;
     if (ok && fprintf(fp, "StartBootLoaderVersion=%s\r\n",
                       meta->start_boot_loader_version) < 0)
