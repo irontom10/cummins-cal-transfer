@@ -850,7 +850,7 @@ elite_exchange(struct pull_ctx *ctx,
     start = ct_monotonic_ms();
     for (;;) {
         now = ct_monotonic_ms();
-        if ((unsigned long)(now - start) >= (DWORD)timeout_ms)
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
 
         rc = j1939_read_payload(ctx,
@@ -2800,7 +2800,7 @@ raw_wait_prefix(struct pull_ctx *ctx,
     start = ct_monotonic_ms();
     for (;;) {
         now = ct_monotonic_ms();
-        if ((unsigned long)(now - start) >= (DWORD)timeout_ms)
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
 
         rc = j1939_read_payload(ctx,
