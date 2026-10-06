@@ -28,7 +28,7 @@ jobs:
           else {
               $version = ($env:GITHUB_REF_NAME -split "/")[-1]
           }
-          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_TAG=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $source = "build/app/CalibrationTransfer.exe"
-          $asset = "release-assets/CalibrationTransfer-$env:VERSION-win-x86.exe"
+          $asset = "release-assets/CalibrationTransfer-$env:RELEASE_TAG-win-x86.exe"
 
           if (!(Test-Path $source)) {
               throw "Expected Windows build output not found: $source"
@@ -78,7 +78,7 @@ jobs:
           else
             version="${GITHUB_REF_NAME##*/}"
           fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$version" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -99,11 +99,26 @@ jobs:
           fi
 
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" \
+
+          attempt=1
+          while ! "$SDKMANAGER" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.0.12077973" \
             "cmake;3.22.1"
+          do
+            if [ "$attempt" -ge 3 ]; then
+              echo "Android SDK package installation failed after 3 attempts."
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            echo "Android SDK package installation failed; retrying attempt $attempt of 3..."
+            rm -rf "$ANDROID_HOME/.temp"
+            rm -rf "$ANDROID_HOME/ndk/27.0.12077973"
+            rm -rf "$HOME/.android/cache"
+            sleep 5
+          done
 
       - name: Cache official NEXIQ mobile SDK
         uses: actions/cache@v4
@@ -121,7 +136,7 @@ jobs:
         shell: bash
         run: |
           source="src/android/app/build/outputs/apk/debug/app-debug.apk"
-          asset="release-assets/CalibrationTransfer-$VERSION-android.apk"
+          asset="release-assets/CalibrationTransfer-$RELEASE_TAG-android.apk"
 
           test -f "$source"
           mkdir -p release-assets
@@ -158,7 +173,7 @@ jobs:
             prerelease="true"
           fi
 
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$version" >> "$GITHUB_ENV"
           echo "PRERELEASE=$prerelease" >> "$GITHUB_ENV"
 
       - name: Download release assets
@@ -174,13 +189,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git rev-parse "$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists."
+          if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "$VERSION" "$GITHUB_SHA"
-            git push origin "$VERSION"
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "$RELEASE_TAG"
           fi
 
       - name: Publish GitHub release
@@ -188,7 +203,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="Calibration Transfer $VERSION"
+          title="Calibration Transfer $RELEASE_TAG"
 
           if [ "$PRERELEASE" = "true" ]; then
             title="$title (pre-release)"
@@ -197,12 +212,12 @@ jobs:
             prerelease_arg=""
           fi
 
-          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$VERSION" release-assets/* \
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* \
               --clobber \
               --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$VERSION" release-assets/* \
+            gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
               --generate-notes \
               --title "$title" \
