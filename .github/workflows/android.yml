@@ -28,14 +28,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK/NDK packages
         shell: bash
         run: |
+          command -v sdkmanager
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platforms;android-37"             "build-tools;36.0.0"             "ndk;30.0.16248370"             "cmake;3.22.1"
+          sdkmanager "platforms;android-37" "build-tools;36.0.0" "ndk;30.0.16248370" "cmake;3.22.1"
 
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
