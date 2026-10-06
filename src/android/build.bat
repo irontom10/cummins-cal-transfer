@@ -5,27 +5,50 @@ cd /d "%~dp0"
 
 set "ROOT=%CD%"
 set "VENDOR=%ROOT%\.vendor-rp1210"
+set "CACHE=%ROOT%\.nexiq-cache"
 set "SDK_URL=https://download.nexiq.com/Nexiq/SDK/RP1210_Mobile_Native_Android_SDK.zip"
-set "SDK_ZIP=%VENDOR%\RP1210_Mobile_Native_Android_SDK.zip"
+set "SDK_ZIP=%CACHE%\RP1210_Mobile_Native_Android_SDK.zip"
+set "SDK_PART=%SDK_ZIP%.part"
 set "WRAPPER_JAR=%ROOT%\gradle\wrapper\gradle-wrapper.jar"
 set "WRAPPER_URL=https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
 set "REMOVE_WRAPPER_JAR=0"
 set "RC=1"
 
 if exist "%VENDOR%" rmdir /S /Q "%VENDOR%"
+if not exist "%CACHE%" mkdir "%CACHE%"
+if errorlevel 1 goto :cleanup
+
+if exist "%SDK_ZIP%" (
+    echo [android] Using cached NEXIQ RP1210 SDK:
+    echo           %SDK_ZIP%
+) else (
+    echo [android] Downloading RP1210 Mobile Native Android SDK from NEXIQ...
+    curl.exe --fail --location --retry 3 --retry-delay 2 --continue-at - --output "%SDK_PART%" "%SDK_URL%"
+    if errorlevel 1 (
+        echo ERROR: Could not download the NEXIQ Android RP1210 SDK.
+        echo        Partial download, if any, was kept at:
+        echo        %SDK_PART%
+        goto :cleanup
+    )
+
+    move /Y "%SDK_PART%" "%SDK_ZIP%" >nul
+    if errorlevel 1 (
+        echo ERROR: Could not finalize the cached NEXIQ SDK archive.
+        goto :cleanup
+    )
+)
+
 mkdir "%VENDOR%"
 if errorlevel 1 goto :cleanup
 
-echo [android] Downloading RP1210 Mobile Native Android SDK from NEXIQ...
-curl.exe --fail --location --retry 3 --retry-delay 2 --output "%SDK_ZIP%" "%SDK_URL%"
-if errorlevel 1 (
-    echo ERROR: Could not download the NEXIQ Android RP1210 SDK.
-    goto :cleanup
-)
-
 echo [android] Extracting the vendor runtime payload...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\stage-vendor.ps1" -Archive "%SDK_ZIP%" -StageRoot "%VENDOR%"
-if errorlevel 1 goto :cleanup
+if errorlevel 1 (
+    echo ERROR: Could not stage the NEXIQ RP1210 runtime.
+    echo        Cached SDK was kept for the next build:
+    echo        %SDK_ZIP%
+    goto :cleanup
+)
 
 if not exist "%VENDOR%\app\src\main\jniLibs\arm64-v8a\libnuln3r32.so" (
     echo ERROR: NEXIQ SDK did not contain the expected arm64 RP1210 libraries.
@@ -72,8 +95,13 @@ if "%RC%"=="0" (
 )
 
 :cleanup
-echo [android] Removing staged NEXIQ SDK/runtime files...
+echo [android] Removing temporary staged NEXIQ runtime files...
 if exist "%VENDOR%" rmdir /S /Q "%VENDOR%"
+
+if exist "%SDK_ZIP%" (
+    echo [android] Keeping cached NEXIQ SDK:
+    echo           %SDK_ZIP%
+)
 
 if "%REMOVE_WRAPPER_JAR%"=="1" (
     if exist "%WRAPPER_JAR%" del /Q "%WRAPPER_JAR%"
