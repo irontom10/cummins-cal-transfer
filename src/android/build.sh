@@ -52,16 +52,29 @@ mkdir -p "$EXTRACT"
 unzip -q "$SDK_ZIP" -d "$EXTRACT" || exit 1
 
 for abi in arm64-v8a armeabi-v7a; do
-    anchor="$(find "$EXTRACT" -type f -path "*/$abi/libnuln3r32.so" -print -quit)"
-    if [ -z "$anchor" ]; then
-        echo "ERROR: Could not find libnuln3r32.so for $abi in the NEXIQ SDK."
-        exit 1
-    fi
-
-    source_dir="$(dirname "$anchor")"
     destination="$VENDOR/app/src/main/jniLibs/$abi"
     mkdir -p "$destination"
-    cp -R "$source_dir/." "$destination/"
+
+    for library in \
+        libc++_shared.so \
+        libnuln2r32.so \
+        libnuln3r32.so \
+        libnblr32.so \
+        libnbl2r32.so \
+        libcil7r32.so \
+        libcimr32.so \
+        libcim16r32.so \
+        libculn3r32.so \
+        libkuln3r32.so
+    do
+        match="$(find "$EXTRACT" -type f -path "*/$abi/$library" -print -quit)"
+        if [ -z "$match" ]; then
+            echo "ERROR: Could not find $library for $abi in the NEXIQ SDK."
+            exit 1
+        fi
+
+        cp "$match" "$destination/$library"
+    done
 done
 
 ini_anchor="$(find "$EXTRACT" -type f -iname "nuln3r32.ini" -print -quit)"
@@ -90,7 +103,7 @@ if [ ! -f "$WRAPPER_JAR" ]; then
 fi
 
 echo "[android] Building Calibration Transfer APK..."
-"$ROOT/gradlew" clean assembleDebug
+sh "$ROOT/gradlew" clean assembleDebug
 RC=$?
 
 if [ "$RC" -eq 0 ]; then
