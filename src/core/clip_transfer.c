@@ -44,6 +44,7 @@
 #define PULL_ERR_CRC                    -111
 #define PULL_ERR_UPLOAD                 -112
 #define PULL_ERR_LEGACY_TX_BLOCKED      -113
+#define PULL_ERR_POST_VERIFY            -114
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
@@ -2927,8 +2928,10 @@ raw_cal_recv(void *user,
                             (size_t)capacity,
                             &n,
                             timeout_ms);
+    if (rc == PULL_ERR_TIMEOUT)
+        return 1;
     if (rc != PULL_OK)
-        return rc;
+        return -1;
 
     *length = (unsigned int)n;
     return 0;
@@ -2958,6 +2961,73 @@ raw_cal_progress(void *user,
             bytes_total,
             address);
     report_progress(ctx, percent, msg);
+}
+
+static int
+verify_ecm_after_programming(struct pull_ctx *ctx,
+                             const char *api_name,
+                             int device_id,
+                             int baud,
+                             clip_u8 tool_sa,
+                             clip_u8 ecm_sa)
+{
+    RP1210_PROGRESS_CALLBACK saved_progress;
+    clip_u8 sequence;
+    int attempt;
+    int rc;
+
+    if (ctx == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    report_progress(ctx, 96,
+                    "Programming stream complete; waiting for ECM application recovery...");
+
+    /*
+     * The raw loader normally resets into the application after the final
+     * transfer command.  Do not report success until the application can be
+     * reached, authenticated, and answer a harmless product-ID query again.
+     */
+    saved_progress = ctx->progress;
+    ctx->progress = NULL;
+    close_j1939_transport(ctx);
+
+    for (attempt = 0; attempt < 12; ++attempt) {
+        ct_sleep_ms(attempt == 0 ? 5000UL : 3000UL);
+
+        ctx->session_id = 0x01U;
+        ctx->wire_slot = 0U;
+        ctx->tolerate_negative = 0;
+
+        rc = open_j1939_transport(ctx,
+                                  api_name,
+                                  device_id,
+                                  baud,
+                                  tool_sa,
+                                  ecm_sa);
+        if (rc == PULL_OK) {
+            rc = clip_authenticate(ctx);
+            if (rc == PULL_OK) {
+                sequence = 0x00U;
+                rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                if (rc == PULL_OK) {
+                    (void)clip_send_close(ctx);
+                    close_j1939_transport(ctx);
+                    ctx->progress = saved_progress;
+                    report_progress(ctx, 99,
+                                    "ECM application is back online and responding.");
+                    return PULL_OK;
+                }
+            }
+        }
+
+        close_j1939_transport(ctx);
+        clear_last_error();
+    }
+
+    ctx->progress = saved_progress;
+    set_last_error_text(
+        "Programming stream completed, but the ECM did not return to a verified CLIP application session.");
+    return PULL_ERR_POST_VERIFY;
 }
 
 int RP1210_CALL
@@ -3179,7 +3249,7 @@ rp1210_upload_ccal(const char *api_name,
     echo_io echo;
     clip_u8 sequence;
     int rc;
-    int crc_ok;
+    int cal_rc;
     int echo_detected;
     int clip_open;
     int loader_mode;
@@ -3194,15 +3264,30 @@ rp1210_upload_ccal(const char *api_name,
         return PULL_ERR_ARGUMENT;
     }
 
-    /* Deliberately verify before opening the adapter.  A bad file therefore
-       cannot generate even one programming packet on the vehicle network. */
+    /*
+     * Deliberately perform the complete file/programming-layout preflight
+     * before opening the adapter.  A CRC-valid but unsupported/truncated CCAL
+     * therefore cannot put an ECM into loader mode.
+     */
     if (progress != NULL)
-        progress(0, "Verifying CCAL CRC...");
-    crc_ok = clip_cal_verify_ccal_crc(ccal_path);
-    if (!crc_ok) {
-        set_last_error_text(
-            "CCAL CRC verification failed. No programming traffic was sent.");
-        return PULL_ERR_CRC;
+        progress(0, "Validating CCAL CRC, Intel-HEX structure, and loader layout...");
+
+    cal_rc = clip_cal_validate_ccal(ccal_path);
+    if (cal_rc != CLIP_CAL_OK) {
+        char msg[512];
+
+        sprintf(msg,
+                "CCAL preflight validation failed: %s. No programming traffic was sent.",
+                clip_cal_strerror(cal_rc));
+        set_last_error_text(msg);
+
+        if (cal_rc == CLIP_CAL_ERR_CRC)
+            return PULL_ERR_CRC;
+        if (cal_rc == CLIP_CAL_ERR_OPEN)
+            return PULL_ERR_FILE;
+        if (cal_rc == CLIP_CAL_ERR_MEMORY)
+            return PULL_ERR_MEMORY;
+        return PULL_ERR_CAL;
     }
 
     ctx.transport = NULL;
@@ -3212,7 +3297,7 @@ rp1210_upload_ccal(const char *api_name,
     clip_open = 0;
     loader_mode = 0;
 
-    report_progress(&ctx, 2, "CCAL CRC verified. Opening RP1210/J1939 transport...");
+    report_progress(&ctx, 2, "CCAL fully validated. Opening RP1210/J1939 transport...");
     rc = open_j1939_transport(&ctx,
                                api_name,
                                device_id,
@@ -3331,7 +3416,17 @@ rp1210_upload_ccal(const char *api_name,
         goto done;
     }
 
-    report_progress(&ctx, 100, "Calibration upload completed.");
+    rc = verify_ecm_after_programming(&ctx,
+                                      api_name,
+                                      device_id,
+                                      baud,
+                                      (clip_u8)tool_sa,
+                                      (clip_u8)ecm_sa);
+    if (rc != PULL_OK)
+        goto done;
+
+    report_progress(&ctx, 100,
+                    "Calibration upload completed and ECM recovery verified.");
     rc = PULL_OK;
 
  done:
