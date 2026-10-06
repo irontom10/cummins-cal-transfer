@@ -254,6 +254,12 @@ typedef int (*clip_cal_send_fn)(void *user,
                                 const unsigned char *data,
                                 unsigned int length);
 
+/*
+ * Receive callback result contract:
+ *   0  message received
+ *   >0 timeout
+ *   <0 transport/protocol failure
+ */
 typedef int (*clip_cal_recv_fn)(void *user,
                                 unsigned char *data,
                                 unsigned int capacity,
@@ -289,6 +295,14 @@ unsigned int clip_cal_crc16_kermit(const unsigned char *data,
 
 /* Verify the calibration file-level CRC token before any programming traffic. */
 int clip_cal_verify_ccal_crc(const char *filename);
+
+/*
+ * Fully validate a CCAL for the raw-loader programming path without sending
+ * any vehicle traffic.  This checks the file CRCs, Intel-HEX syntax/checksums,
+ * record ordering, required 0x00A00000 metadata region, and every address/
+ * length constraint used by clip_cal_send_ccal().
+ */
+int clip_cal_validate_ccal(const char *filename);
 
 /*
  * Program a parsed .ccal over the raw loader protocol observed in the
