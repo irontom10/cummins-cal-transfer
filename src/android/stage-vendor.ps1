@@ -44,23 +44,37 @@ $allFiles = Get-ChildItem -LiteralPath $extractRoot -Recurse -File
         "libculn3r32.so",
         "libkuln3r32.so"
     )) {
+        # The SDK ZIP contains stale Gradle build intermediates with the same
+        # filenames as the canonical vendor runtime.  Only take libraries from
+        # app/src/main/jniLibs so we never package app/build/intermediates.
+        $suffix = [IO.Path]::Combine(
+            "app", "src", "main", "jniLibs", $abi, $library)
+
         $match = $allFiles |
             Where-Object {
-                $_.Name -ieq $library -and
-                $_.Directory.Name -ieq $abi
+                $_.FullName.EndsWith(
+                    $suffix,
+                    [StringComparison]::OrdinalIgnoreCase)
             } |
             Select-Object -First 1
 
         if ($null -eq $match) {
-            throw "Could not find $library for $abi in the NEXIQ SDK."
+            throw "Could not find canonical app/src/main/jniLibs/$abi/$library in the NEXIQ SDK."
         }
 
         Copy-Item -LiteralPath $match.FullName -Destination (Join-Path $destination $library) -Force
     }
 }
 
+$assetAnchorSuffix = [IO.Path]::Combine(
+    "app", "src", "main", "assets", "Files", "nuln3r32.ini")
+
 $iniAnchor = $allFiles |
-    Where-Object { $_.Name -ieq "nuln3r32.ini" } |
+    Where-Object {
+        $_.FullName.EndsWith(
+            $assetAnchorSuffix,
+            [StringComparison]::OrdinalIgnoreCase)
+    } |
     Select-Object -First 1
 
 if ($null -eq $iniAnchor) {
