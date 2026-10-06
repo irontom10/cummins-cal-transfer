@@ -117,6 +117,16 @@ public final class MainActivity extends Activity {
     private final NativeBridge nativeBridge = new NativeBridge();
     private final Map<String, DeviceEntry> devicesByMac =
             new LinkedHashMap<String, DeviceEntry>();
+
+    /*
+     * Discovery can report ACTION_FOUND before Android has finished resolving
+     * the remote name.  Keep those candidates hidden and re-check them when
+     * ACTION_NAME_CHANGED arrives / discovery finishes.  Only recognized
+     * diagnostic adapters ever reach deviceRows.
+     */
+    private final Map<String, BluetoothDevice> scanCandidatesByMac =
+            new LinkedHashMap<String, BluetoothDevice>();
+
     private final List<DeviceEntry> deviceRows =
             new ArrayList<DeviceEntry>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -156,9 +166,29 @@ public final class MainActivity extends Activity {
 
                 if (device != null &&
                     acceptScanResults &&
-                    safeBondState(device) != BluetoothDevice.BOND_BONDED &&
-                    isDiagnosticAdapter(device)) {
-                    addOrUpdateDevice(device);
+                    safeBondState(device) != BluetoothDevice.BOND_BONDED) {
+                    String mac = safeAddress(device);
+
+                    if (mac.length() != 0)
+                        scanCandidatesByMac.put(mac, device);
+
+                    if (isDiagnosticAdapter(device))
+                        addOrUpdateDevice(device);
+                }
+            }
+            else if (BluetoothDevice.ACTION_NAME_CHANGED.equals(action)) {
+                BluetoothDevice device =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+
+                if (device != null) {
+                    String mac = safeAddress(device);
+
+                    if (scanCandidatesByMac.containsKey(mac) &&
+                        safeBondState(device) != BluetoothDevice.BOND_BONDED &&
+                        isDiagnosticAdapter(device)) {
+                        scanCandidatesByMac.put(mac, device);
+                        addOrUpdateDevice(device);
+                    }
                 }
             }
             else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
@@ -167,6 +197,17 @@ public final class MainActivity extends Activity {
                 setStatus("Bluetooth scan started. Looking for diagnostic adapters...");
             }
             else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                /*
+                 * Some devices acquire their Bluetooth name late in discovery.
+                 * Give every hidden candidate one final classification pass.
+                 */
+                for (BluetoothDevice device : scanCandidatesByMac.values()) {
+                    if (safeBondState(device) != BluetoothDevice.BOND_BONDED &&
+                        isDiagnosticAdapter(device)) {
+                        addOrUpdateDevice(device);
+                    }
+                }
+
                 acceptScanResults = false;
                 scanButton.setText("Scan Bluetooth");
 
@@ -867,45 +908,75 @@ public final class MainActivity extends Activity {
     }
 
     private boolean isDiagnosticAdapter(BluetoothDevice device) {
-        String name = safeName(device).toUpperCase(Locale.US);
+        return detectDriver(safeName(device)) >= 0;
+    }
 
-        return name.contains("USB-LINK") ||
-               name.contains("USBLINK") ||
-               name.contains("INLINE") ||
-               name.contains("BLUE-LINK") ||
-               name.contains("BLUELINK") ||
-               name.contains("CIMINI") ||
-               name.contains("BTUSBLINK");
+    /*
+     * Match the Bluetooth names the hardware actually advertises, not the
+     * pretty marketing descriptions from the RP1210 INI files.
+     *
+     * Seen on real hardware:
+     *   CILMini_9677
+     *   USBL3-36604
+     *
+     * The compact form also accepts the SDK/Windows descriptions such as
+     * "CIMini Bluetooth", "Cummins INLINE Mini", and "USB-Link 3".
+     */
+    private String compactDeviceName(String deviceName) {
+        if (deviceName == null)
+            return "";
+
+        return deviceName
+                .toUpperCase(Locale.US)
+                .replaceAll("[^A-Z0-9]", "");
     }
 
     private int detectDriver(String deviceName) {
-        String name = deviceName == null ?
-                "" : deviceName.toUpperCase(Locale.US);
+        String name = compactDeviceName(deviceName);
 
-        if (name.contains("INLINE MINI 16"))
+        if (name.startsWith("CILMINI16") ||
+            name.startsWith("CIMINI16") ||
+            name.startsWith("CIM16") ||
+            name.contains("INLINEMINI16"))
             return 6;
-        if (name.contains("INLINE MINI"))
+
+        if (name.startsWith("CILMINI") ||
+            name.startsWith("CIMINI") ||
+            name.contains("INLINEMINI"))
             return 5;
-        if (name.contains("INLINE 7"))
+
+        if (name.startsWith("CIL7") ||
+            name.contains("INLINE7"))
             return 4;
-        if (name.contains("BLUE-LINK 2") ||
-            name.contains("BLUELINK 2"))
+
+        if (name.startsWith("NBL2") ||
+            name.contains("BLUELINK2"))
             return 3;
-        if (name.contains("BLUE-LINK") ||
+
+        if (name.startsWith("BLMINI") ||
+            name.startsWith("NBL") ||
             name.contains("BLUELINK"))
             return 2;
-        if (name.contains("KUBOTA") &&
-            (name.contains("USB-LINK") || name.contains("USBLINK")))
+
+        if (name.startsWith("KUSBL3") ||
+            (name.contains("KUBOTA") &&
+             (name.contains("USBL3") || name.contains("USBLINK3"))))
             return 8;
-        if (name.contains("CUMMINS") &&
-            (name.contains("USB-LINK") || name.contains("USBLINK")))
+
+        if (name.startsWith("CUSBL3") ||
+            (name.contains("CUMMINS") &&
+             (name.contains("USBL3") || name.contains("USBLINK3"))))
             return 7;
-        if (name.contains("USB-LINK 2") ||
-            name.contains("USBLINK 2"))
+
+        if (name.startsWith("USBL2") ||
+            name.contains("USBLINK2"))
             return 0;
-        if (name.contains("USB-LINK 3") ||
-            name.contains("USBLINK 3") ||
-            name.contains("BTUSBLINK"))
+
+        if (name.startsWith("USBL3") ||
+            name.contains("USBLINK3") ||
+            name.equals("BTUSBLINK") ||
+            name.startsWith("NEXIQUSBL3") ||
+            name.startsWith("NEXIQUSBLINK3"))
             return 1;
 
         return -1;
@@ -1012,6 +1083,7 @@ public final class MainActivity extends Activity {
             acceptScanResults = false;
             restartDiscoveryAfterFinish = false;
             discoveryRetryPending = false;
+            scanCandidatesByMac.clear();
 
             if (bluetoothAdapter.isDiscovering())
                 bluetoothAdapter.cancelDiscovery();
@@ -1064,6 +1136,9 @@ public final class MainActivity extends Activity {
     private void startBluetoothDiscovery(final boolean retry) {
         try {
             discoveryRetryPending = false;
+
+            if (!retry)
+                scanCandidatesByMac.clear();
 
             if (bluetoothAdapter.startDiscovery()) {
                 acceptScanResults = true;
@@ -1230,6 +1305,7 @@ public final class MainActivity extends Activity {
     private void registerBluetoothReceiver() {
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothDevice.ACTION_NAME_CHANGED);
         filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
