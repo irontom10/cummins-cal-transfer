@@ -16,11 +16,16 @@ if (Test-Path $extractRoot) {
     Remove-Item -Recurse -Force $extractRoot
 }
 
-New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $jniRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
 
-Expand-Archive -LiteralPath $Archive -DestinationPath $extractRoot -Force
+# PowerShell 5.1 Expand-Archive has a long-standing habit of tripping over
+# dotfiles in some archives. Use .NET's ZIP reader directly instead.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory($Archive, $extractRoot)
+
+$allFiles = Get-ChildItem -LiteralPath $extractRoot -Recurse -File
 
 @("arm64-v8a", "armeabi-v7a") | ForEach-Object {
     $abi = $_
@@ -39,8 +44,11 @@ Expand-Archive -LiteralPath $Archive -DestinationPath $extractRoot -Force
         "libculn3r32.so",
         "libkuln3r32.so"
     )) {
-        $match = Get-ChildItem -LiteralPath $extractRoot -Recurse -File |
-            Where-Object { $_.Name -ieq $library -and $_.Directory.Name -ieq $abi } |
+        $match = $allFiles |
+            Where-Object {
+                $_.Name -ieq $library -and
+                $_.Directory.Name -ieq $abi
+            } |
             Select-Object -First 1
 
         if ($null -eq $match) {
@@ -51,7 +59,7 @@ Expand-Archive -LiteralPath $Archive -DestinationPath $extractRoot -Force
     }
 }
 
-$iniAnchor = Get-ChildItem -LiteralPath $extractRoot -Recurse -File |
+$iniAnchor = $allFiles |
     Where-Object { $_.Name -ieq "nuln3r32.ini" } |
     Select-Object -First 1
 
@@ -62,6 +70,5 @@ if ($null -eq $iniAnchor) {
 Copy-Item -Path (Join-Path $iniAnchor.Directory.FullName "*") -Destination $assetRoot -Recurse -Force
 
 Remove-Item -Recurse -Force $extractRoot
-Remove-Item -Force $Archive
 
-Write-Host "[android] NEXIQ RP1210 payload staged from official SDK."
+Write-Host "[android] NEXIQ RP1210 payload staged from cached official SDK."
