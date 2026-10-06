@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(caltransfer C)
 
-set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../../src/c")
+set(CORE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../src/c")
 
 add_library(caltransfer SHARED
     android_jni.c
