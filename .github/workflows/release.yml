@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'release/v*'
 
 permissions:
   contents: write
@@ -13,52 +15,193 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Check out tagged source
+      - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+              $version = $env:GITHUB_REF_NAME
+          }
+          else {
+              $version = ($env:GITHUB_REF_NAME -split "/")[-1]
+          }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
-      - name: Build
+      - name: Build Windows x86
         shell: cmd
         run: build.bat
 
-      - name: Prepare release assets
+      - name: Prepare Windows release asset
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME
           $source = "build/app/CalibrationTransfer.exe"
-          $asset = "build/app/CalibrationTransfer-$version-win-x86.exe"
+          $asset = "release-assets/CalibrationTransfer-$env:VERSION-win-x86.exe"
 
           if (!(Test-Path $source)) {
-              throw "Expected build output not found: $source"
+              throw "Expected Windows build output not found: $source"
           }
 
+          New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
           Copy-Item $source $asset -Force
 
           $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
           $name = Split-Path $asset -Leaf
           "$hash  $name" | Set-Content "$asset.sha256" -Encoding ascii
 
-      - name: Create GitHub Release
-        shell: pwsh
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release-assets/*
+          if-no-files-found: error
+
+  android-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="${GITHUB_REF_NAME##*/}"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            src/android/*.gradle
+            src/android/app/*.gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android native build tools
+        shell: bash
+        run: |
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+      - name: Cache official NEXIQ mobile SDK
+        uses: actions/cache@v4
+        with:
+          path: src/android/.nexiq-cache
+          key: nexiq-rp1210-mobile-sdk-v1
+
+      - name: Build Android
+        shell: bash
+        run: |
+          chmod +x build-android.sh src/android/build.sh src/android/gradlew
+          ./build-android.sh
+
+      - name: Prepare Android release asset
+        shell: bash
+        run: |
+          source="src/android/app/build/outputs/apk/debug/app-debug.apk"
+          asset="release-assets/CalibrationTransfer-$VERSION-android.apk"
+
+          test -f "$source"
+          mkdir -p release-assets
+          cp "$source" "$asset"
+          sha256sum "$asset" > "$asset.sha256"
+
+      - name: Upload Android release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish-release:
+    needs:
+      - windows-x86-release
+      - android-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+            prerelease="false"
+          else
+            version="${GITHUB_REF_NAME##*/}"
+            prerelease="true"
+          fi
+
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "PRERELEASE=$prerelease" >> "$GITHUB_ENV"
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release tag for release branch
+        if: github.ref_type == 'branch'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = $env:GITHUB_REF_NAME
-          $asset = "build/app/CalibrationTransfer-$version-win-x86.exe"
-          $checksum = "$asset.sha256"
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$VERSION" "$GITHUB_SHA"
+            git push origin "$VERSION"
+          fi
 
-          gh release view "$version" --repo "$env:GITHUB_REPOSITORY" *> $null
-          if ($LASTEXITCODE -eq 0) {
-              gh release upload "$version" "$asset" "$checksum" --clobber --repo "$env:GITHUB_REPOSITORY"
-          }
-          else {
-              gh release create "$version" "$asset" "$checksum" `
-                  --verify-tag `
-                  --generate-notes `
-                  --title "Calibration Transfer $version" `
-                  --repo "$env:GITHUB_REPOSITORY"
-          }
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Calibration Transfer $VERSION"
+
+          if [ "$PRERELEASE" = "true" ]; then
+            title="$title (pre-release)"
+            prerelease_arg="--prerelease"
+          else
+            prerelease_arg=""
+          fi
+
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$VERSION" release-assets/* \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$VERSION" release-assets/* \
+              --verify-tag \
+              --generate-notes \
+              --title "$title" \
+              $prerelease_arg \
+              --repo "$GITHUB_REPOSITORY"
+          fi
