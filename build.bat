@@ -132,7 +132,7 @@ if not errorlevel 1 goto :restore_ok
 
 if %RESTORE_ATTEMPT% GEQ 3 goto :fail
 echo [build] Restore failed; retrying in 5 seconds...
-timeout /T 5 /NOBREAK >nul
+powershell.exe -NoProfile -Command "Start-Sleep -Seconds 5"
 goto :restore_retry
 
 :restore_ok
