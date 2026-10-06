@@ -1796,12 +1796,13 @@ collect_metadata(struct pull_ctx *ctx,
     safe_copy(meta->harness_compat, "0000000000000000",
               sizeof(meta->harness_compat));
     {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
+        unsigned int year;
+
+        ct_get_local_date(&year, NULL, NULL);
         sprintf(meta->file_descriptor,
                 "Copyright %04u - Generated Calibration Data - "
                 "Phase 22.60.70.02 - GTIS4.5",
-                (unsigned int)st.wYear);
+                year);
     }
 
     rc = query_meta_required(ctx, sequence,
@@ -2616,7 +2617,9 @@ write_ccal(const char *path,
            const struct pull_image *image)
 {
     FILE *fp;
-    SYSTEMTIME st;
+    unsigned int year;
+    unsigned int month;
+    unsigned int day;
     char creation_date[32];
     char cal_version[128];
     char module_name[128];
@@ -2634,11 +2637,11 @@ write_ccal(const char *path,
     if (path == NULL || meta == NULL || image == NULL)
         return PULL_ERR_ARGUMENT;
 
-    GetLocalTime(&st);
+    ct_get_local_date(&year, &month, &day);
     sprintf(creation_date, "%04u-%02u-%02u",
-            (unsigned int)st.wYear,
-            (unsigned int)st.wMonth,
-            (unsigned int)st.wDay);
+            year,
+            month,
+            day);
 
     xml_escape(meta->calibration_version, cal_version, sizeof(cal_version));
     xml_escape(meta->module_name, module_name, sizeof(module_name));
