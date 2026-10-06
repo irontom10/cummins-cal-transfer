@@ -76,6 +76,7 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /c ^
     "%SRC_C%\rp1210scan.c" ^
     "%SRC_C%\rp1210_transport.c" ^
     "%SRC_C%\j1939_transport.c" ^
+    "%SRC_C%\ct_platform.c" ^
     "%SRC_C%\clip_transfer.c" ^
     "%SRC_C%\echo_transfer.c" ^
     "%SRC_C%\clip_crypto.c" ^
@@ -88,7 +89,7 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210_transport.obj j1939_transport.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
+    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 
