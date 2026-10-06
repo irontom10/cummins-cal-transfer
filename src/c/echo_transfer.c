@@ -10,13 +10,13 @@
  * C89 source.
  */
 
-#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "echo_transfer.h"
 #include "ccal_crc.h"
+#include "ct_platform.h"
 
 #define ECHO_MAX_WIRE          4096U
 #define ECHO_TIMEOUT_MS        5000UL
@@ -122,8 +122,8 @@ exchange(const echo_io *io,
 {
     unsigned char incoming[ECHO_MAX_WIRE];
     unsigned int incoming_len;
-    DWORD start;
-    DWORD now;
+    unsigned long start;
+    unsigned long now;
     int rc;
 
     if (io == NULL || io->send == NULL || io->recv == NULL ||
@@ -138,10 +138,10 @@ exchange(const echo_io *io,
         return ECHO_TRANSFER_ERR_TRANSPORT;
     }
 
-    start = GetTickCount();
+    start = ct_monotonic_ms();
     for (;;) {
-        now = GetTickCount();
-        if ((DWORD)(now - start) >= (DWORD)timeout_ms)
+        now = ct_monotonic_ms();
+        if ((unsigned long)(now - start) >= (DWORD)timeout_ms)
             break;
 
         incoming_len = 0U;
@@ -149,7 +149,7 @@ exchange(const echo_io *io,
                       incoming,
                       (unsigned int)sizeof(incoming),
                       &incoming_len,
-                      timeout_ms - (unsigned long)(DWORD)(now - start));
+                      timeout_ms - (unsigned long)(unsigned long)(now - start));
         if (rc != 0) {
             set_error("ECH/ECHO transport receive failed.");
             return ECHO_TRANSFER_ERR_TRANSPORT;
@@ -619,7 +619,7 @@ read_image(const echo_io *io, struct echo_image *image)
                     total);
             progress(io, percent, msg);
 
-            Sleep(35);
+            ct_sleep_ms(35);
         }
     }
 
@@ -834,7 +834,7 @@ write_ccal(const char *path,
         ok = 0;
 
     if (!ok) {
-        DeleteFileA(path);
+        (void)remove(path);
         set_error("Failed while writing destination ECH/ECHO .ccal file.");
         return ECHO_TRANSFER_ERR_FILE;
     }
