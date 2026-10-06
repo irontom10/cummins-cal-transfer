@@ -41,5 +41,6 @@ src/android/app/.cxx/
 src/android/.idea/
 
 src/android/.vendor-rp1210/
+src/android/.nexiq-cache/
 
 src/android/gradle/wrapper/gradle-wrapper.jar
