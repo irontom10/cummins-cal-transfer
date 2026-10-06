@@ -141,7 +141,7 @@ exchange(const echo_io *io,
     start = ct_monotonic_ms();
     for (;;) {
         now = ct_monotonic_ms();
-        if ((unsigned long)(now - start) >= (DWORD)timeout_ms)
+        if ((unsigned long)(now - start) >= (unsigned long)timeout_ms)
             break;
 
         incoming_len = 0U;
