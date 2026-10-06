@@ -183,20 +183,20 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Create release tag for release branch
+      - name: Update release tag for release branch
         if: github.ref_type == 'branch'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Tag $RELEASE_TAG already exists."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "$RELEASE_TAG" "$GITHUB_SHA"
-            git push origin "$RELEASE_TAG"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # A prerelease branch is intentionally rebuildable at the same
+          # semantic version. Move the tag to the exact revision whose
+          # binaries are being published so source and assets cannot diverge.
+          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$RELEASE_TAG"
 
       - name: Publish GitHub release
         shell: bash
