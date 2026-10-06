@@ -16,7 +16,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                cFlags '-std=c90 -Wall -Wextra -D_POSIX_C_SOURCE=200809L'
+                cFlags '-std=gnu90 -Wall -Wextra -D_POSIX_C_SOURCE=200809L'
             }
         }
     }
@@ -26,6 +26,11 @@ android {
             path file('src/main/cpp/CMakeLists.txt')
             version '3.22.1'
         }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     buildTypes {
