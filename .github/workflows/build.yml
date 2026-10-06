@@ -7,6 +7,34 @@ on:
   pull_request:
 
 jobs:
+  protocol-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build and run native protocol tests
+        shell: bash
+        run: |
+          mkdir -p build/tests
+
+          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
+            tests/clip_cal_protocol_test.c \
+            src/core/clip_cal.c \
+            src/core/ccal_crc.c \
+            src/core/ct_platform.c \
+            -o build/tests/clip_cal_protocol_test
+
+          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
+            tests/j1939_transport_test.c \
+            src/core/j1939_transport.c \
+            src/core/ct_platform.c \
+            -o build/tests/j1939_transport_test
+
+          build/tests/clip_cal_protocol_test
+          build/tests/j1939_transport_test
+
   windows-x86:
     runs-on: windows-latest
 
