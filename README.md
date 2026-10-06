@@ -175,14 +175,18 @@ See [docs/upload-validation.md](docs/upload-validation.md) for validation detail
 
 ## Releases
 
-Version tags automatically produce a Windows x86 GitHub Release.
+Normal pushes and pull requests automatically build both the Windows x86 application and the Android APK.
 
-```bat
-git tag v0.1.1
-git push origin v0.1.1
+Version tags automatically produce a GitHub Release containing both platform binaries and SHA-256 checksums:
+
+```text
+CalibrationTransfer-vX.Y.Z-win-x86.exe
+CalibrationTransfer-vX.Y.Z-win-x86.exe.sha256
+CalibrationTransfer-vX.Y.Z-android.apk
+CalibrationTransfer-vX.Y.Z-android.apk.sha256
 ```
 
-The release workflow builds from the tagged revision and attaches a versioned executable and SHA-256 checksum.
+Pushing a branch named `release/vX.Y.Z` performs the same two-platform build, creates the matching tag, and publishes the result as a GitHub pre-release. This is used for release candidates that intentionally keep a normal semantic-version tag.
 
 ## License
 
