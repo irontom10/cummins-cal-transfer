@@ -23,6 +23,7 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -706,6 +707,17 @@ public final class MainActivity extends Activity {
     private void prepareDriver(
             DriverProfile driver,
             String mac) {
+        if (bluetoothAdapter != null) {
+            try {
+                if (hasBluetoothPermissions() &&
+                    bluetoothAdapter.isDiscovering()) {
+                    bluetoothAdapter.cancelDiscovery();
+                }
+            }
+            catch (SecurityException ignored) {
+            }
+        }
+
         NativeBridge.loadVendorLibrary(driver.library);
 
         if (nativeBridge.configureRp1210(
@@ -762,7 +774,7 @@ public final class MainActivity extends Activity {
 
         try {
             in = new FileInputStream(file);
-            out = getContentResolver().openOutputStream(uri, "wt");
+            out = getContentResolver().openOutputStream(uri, "w");
             if (out == null)
                 throw new IOException("Unable to open destination file.");
 
@@ -789,6 +801,11 @@ public final class MainActivity extends Activity {
 
     private void setBusy(boolean value) {
         busy = value;
+
+        if (value)
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         driverSpinner.setEnabled(!value);
         deviceSpinner.setEnabled(!value);
