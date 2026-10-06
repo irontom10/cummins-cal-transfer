@@ -2,7 +2,7 @@
 
 This is the production Android front end for the shared Calibration Transfer C89 core.
 
-The Android app does **not** keep the mobile RP1210 SDK binaries in this repository. The build helper downloads NEXIQ's official `RP1210_Mobile_Native_Android_SDK.zip` directly from NEXIQ, extracts the required `.so` files and `assets/Files` payload into a temporary staging directory, builds the APK, and deletes the staged SDK/runtime files when the build finishes or fails.
+The Android app does **not** commit the mobile RP1210 SDK binaries to this repository. The build helper downloads NEXIQ's official `RP1210_Mobile_Native_Android_SDK.zip` directly from NEXIQ and keeps that ZIP in a local ignored cache. Each build extracts only the required `.so` files and `assets/Files` payload into a temporary staging directory, builds the APK, then deletes only the temporary staging files.
 
 ## Build
 
@@ -25,13 +25,23 @@ No GitHub authentication or private dependency repository is required. The build
 https://download.nexiq.com/Nexiq/SDK/RP1210_Mobile_Native_Android_SDK.zip
 ```
 
-The downloaded/extracted vendor payload exists only at:
+The official SDK ZIP is cached locally at:
+
+```text
+src/android/.nexiq-cache/RP1210_Mobile_Native_Android_SDK.zip
+```
+
+and reused on later builds. If a download is interrupted, the partial `.part` file is also kept so the next build can resume instead of starting over.
+
+The extracted vendor payload exists only at:
 
 ```text
 src/android/.vendor-rp1210/
 ```
 
-during the build. It is removed afterward. The built APK still contains the vendor runtime payload required by the selected RP1210 driver.
+during the build and is removed afterward. A failed Gradle build therefore does **not** force another 35 MB NEXIQ SDK download.
+
+On Windows the staging helper uses .NET's ZIP reader instead of PowerShell 5.1 `Expand-Archive`, avoiding its dotfile extraction bug with this SDK archive.
 
 The staging helper locates the ARM64 and ARMv7 RP1210 libraries and the RP1210 `Files` directory by their contents, so it does not depend on a particular top-level SDK ZIP directory layout.
 
