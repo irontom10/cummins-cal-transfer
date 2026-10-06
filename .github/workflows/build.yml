@@ -56,11 +56,26 @@ jobs:
           fi
 
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" \
+
+          attempt=1
+          while ! "$SDKMANAGER" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.0.12077973" \
             "cmake;3.22.1"
+          do
+            if [ "$attempt" -ge 3 ]; then
+              echo "Android SDK package installation failed after 3 attempts."
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            echo "Android SDK package installation failed; retrying attempt $attempt of 3..."
+            rm -rf "$ANDROID_HOME/.temp"
+            rm -rf "$ANDROID_HOME/ndk/27.0.12077973"
+            rm -rf "$HOME/.android/cache"
+            sleep 5
+          done
 
       - name: Cache official NEXIQ mobile SDK
         uses: actions/cache@v4
