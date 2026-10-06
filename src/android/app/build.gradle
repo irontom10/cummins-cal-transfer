@@ -4,9 +4,13 @@ plugins {
 
 def vendorMain = file("${rootProject.projectDir}/.vendor-rp1210/app/src/main")
 
-if (!vendorMain.exists()) {
-    throw new GradleException(
-            "Android RP1210 vendor payload is not staged. Run src/android/build.bat or build.sh.")
+tasks.register('verifyVendorPayload') {
+    doLast {
+        if (!vendorMain.exists()) {
+            throw new GradleException(
+                    "Android RP1210 vendor payload is not staged. Run src/android/build.bat or build.sh.")
+        }
+    }
 }
 
 android {
@@ -51,4 +55,8 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('verifyVendorPayload')
 }
