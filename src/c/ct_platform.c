@@ -23,6 +23,8 @@
 
 #endif
 
+#include <time.h>
+
 #include "ct_platform.h"
 
 unsigned long
@@ -69,4 +71,37 @@ ct_stricmp(const char *a, const char *b)
 #else
     return strcasecmp(a, b);
 #endif
+}
+
+void
+ct_get_local_date(unsigned int *year,
+                  unsigned int *month,
+                  unsigned int *day)
+{
+    time_t now;
+    struct tm *local;
+    unsigned int y;
+    unsigned int m;
+    unsigned int d;
+
+    y = 1970U;
+    m = 1U;
+    d = 1U;
+
+    now = time(NULL);
+    if (now != (time_t)-1) {
+        local = localtime(&now);
+        if (local != NULL) {
+            y = (unsigned int)(local->tm_year + 1900);
+            m = (unsigned int)(local->tm_mon + 1);
+            d = (unsigned int)local->tm_mday;
+        }
+    }
+
+    if (year != NULL)
+        *year = y;
+    if (month != NULL)
+        *month = m;
+    if (day != NULL)
+        *day = d;
 }
