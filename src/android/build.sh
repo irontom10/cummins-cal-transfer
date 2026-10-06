@@ -3,8 +3,10 @@ set -u
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 VENDOR="$ROOT/.vendor-rp1210"
+CACHE="$ROOT/.nexiq-cache"
 SDK_URL="https://download.nexiq.com/Nexiq/SDK/RP1210_Mobile_Native_Android_SDK.zip"
-SDK_ZIP="$VENDOR/RP1210_Mobile_Native_Android_SDK.zip"
+SDK_ZIP="$CACHE/RP1210_Mobile_Native_Android_SDK.zip"
+SDK_PART="$SDK_ZIP.part"
 EXTRACT="$VENDOR/_extract"
 WRAPPER_JAR="$ROOT/gradle/wrapper/gradle-wrapper.jar"
 WRAPPER_URL="https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
@@ -16,8 +18,31 @@ cleanup() {
     if [ "$REMOVE_WRAPPER_JAR" -eq 1 ]; then
         rm -f "$WRAPPER_JAR"
     fi
+
+    if [ -f "$SDK_ZIP" ]; then
+        echo "[android] Keeping cached NEXIQ SDK:"
+        echo "          $SDK_ZIP"
+    fi
 }
 trap cleanup EXIT INT TERM
+
+download_resumable() {
+    url="$1"
+    partial="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --retry 3 --retry-delay 2 -C - -o "$partial" "$url"
+        return $?
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -c -O "$partial" "$url"
+        return $?
+    fi
+
+    echo "ERROR: curl or wget is required."
+    return 1
+}
 
 download() {
     url="$1"
@@ -38,18 +63,36 @@ download() {
 }
 
 rm -rf "$VENDOR"
-mkdir -p "$VENDOR" || exit 1
+mkdir -p "$CACHE" || exit 1
 
-echo "[android] Downloading RP1210 Mobile Native Android SDK from NEXIQ..."
-download "$SDK_URL" "$SDK_ZIP" || exit 1
+if [ -f "$SDK_ZIP" ]; then
+    echo "[android] Using cached NEXIQ RP1210 SDK:"
+    echo "          $SDK_ZIP"
+else
+    echo "[android] Downloading RP1210 Mobile Native Android SDK from NEXIQ..."
+    download_resumable "$SDK_URL" "$SDK_PART" || {
+        echo "ERROR: Could not download the NEXIQ Android RP1210 SDK."
+        echo "       Partial download, if any, was kept at:"
+        echo "       $SDK_PART"
+        exit 1
+    }
+    mv "$SDK_PART" "$SDK_ZIP" || exit 1
+fi
+
+mkdir -p "$VENDOR" "$EXTRACT" || exit 1
 
 command -v unzip >/dev/null 2>&1 || {
     echo "ERROR: unzip is required to extract the NEXIQ SDK."
     exit 1
 }
 
-mkdir -p "$EXTRACT"
-unzip -q "$SDK_ZIP" -d "$EXTRACT" || exit 1
+echo "[android] Extracting the vendor runtime payload..."
+unzip -q "$SDK_ZIP" -d "$EXTRACT" || {
+    echo "ERROR: Could not extract the NEXIQ SDK."
+    echo "       Cached archive was kept at:"
+    echo "       $SDK_ZIP"
+    exit 1
+}
 
 for abi in arm64-v8a armeabi-v7a; do
     destination="$VENDOR/app/src/main/jniLibs/$abi"
@@ -89,7 +132,6 @@ mkdir -p "$asset_destination"
 cp -R "$asset_source/." "$asset_destination/"
 
 rm -rf "$EXTRACT"
-rm -f "$SDK_ZIP"
 
 test -f "$VENDOR/app/src/main/jniLibs/arm64-v8a/libnuln3r32.so" || exit 1
 test -f "$VENDOR/app/src/main/jniLibs/armeabi-v7a/libnuln3r32.so" || exit 1
