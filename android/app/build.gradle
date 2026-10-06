@@ -1,0 +1,36 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.irontom10.caltransfer'
+    compileSdk 37
+    ndkVersion '30.0.16248370'
+
+    defaultConfig {
+        applicationId 'io.github.irontom10.caltransfer'
+        minSdk 26
+        targetSdk 37
+        versionCode 1
+        versionName '0.1.0-prototype'
+
+        externalNativeBuild {
+            cmake {
+                cFlags '-std=c90 -Wall -Wextra -D_POSIX_C_SOURCE=200809L'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}
