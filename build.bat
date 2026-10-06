@@ -121,10 +121,26 @@ if errorlevel 1 goto :fail_from_obj
 popd
 
 echo [4/4] Publishing WinForms app...
+
+set "RESTORE_ATTEMPT=0"
+
+:restore_retry
+set /A RESTORE_ATTEMPT+=1
+echo [build] dotnet restore attempt %RESTORE_ATTEMPT% of 3...
+dotnet restore "%SRC_WINDOWS%\CalibrationTransfer.csproj" -r win-x86
+if not errorlevel 1 goto :restore_ok
+
+if %RESTORE_ATTEMPT% GEQ 3 goto :fail
+echo [build] Restore failed; retrying in 5 seconds...
+timeout /T 5 /NOBREAK >nul
+goto :restore_retry
+
+:restore_ok
 dotnet publish "%SRC_WINDOWS%\CalibrationTransfer.csproj" ^
     -c Release ^
     -r win-x86 ^
     --self-contained true ^
+    --no-restore ^
     -o "%APP%"
 if errorlevel 1 goto :fail
 
