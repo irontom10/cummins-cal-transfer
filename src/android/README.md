@@ -2,7 +2,7 @@
 
 This is the production Android front end for the shared Calibration Transfer C89 core.
 
-The Android app does **not** keep the proprietary mobile RP1210 SDK binaries in this public repository. The build helper temporarily clones the private `irontom10/rp1210-android-test` transport proving-ground repository, uses its packaged vendor `.so` files and `assets/Files` payload while Gradle builds the APK, and deletes the temporary checkout when the build finishes or fails.
+The Android app does **not** keep the mobile RP1210 SDK binaries in this repository. The build helper downloads NEXIQ's official `RP1210_Mobile_Native_Android_SDK.zip` directly from NEXIQ, extracts the required `.so` files and `assets/Files` payload into a temporary staging directory, builds the APK, and deletes the staged SDK/runtime files when the build finishes or fails.
 
 ## Build
 
@@ -19,15 +19,21 @@ cd src\android
 .\build.bat
 ```
 
-The helper uses `gh repo clone` when GitHub CLI is available, otherwise normal `git clone`. Because the source repository is private, authenticate first with GitHub CLI or Git Credential Manager.
+No GitHub authentication or private dependency repository is required. The build downloads the SDK from:
 
-The vendor checkout exists only at:
+```text
+https://download.nexiq.com/Nexiq/SDK/RP1210_Mobile_Native_Android_SDK.zip
+```
+
+The downloaded/extracted vendor payload exists only at:
 
 ```text
 src/android/.vendor-rp1210/
 ```
 
 during the build. It is removed afterward. The built APK still contains the vendor runtime payload required by the selected RP1210 driver.
+
+The staging helper locates the ARM64 and ARMv7 RP1210 libraries and the RP1210 `Files` directory by their contents, so it does not depend on a particular top-level SDK ZIP directory layout.
 
 APK:
 
