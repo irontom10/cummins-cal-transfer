@@ -736,6 +736,10 @@ public final class MainActivity extends Activity {
                 finally {
                     if (temp.exists())
                         temp.delete();
+
+                    stopService(new Intent(
+                            MainActivity.this,
+                            TransferGuardService.class));
                 }
             }
         }, "calibration-pull").start();
@@ -805,6 +809,10 @@ public final class MainActivity extends Activity {
                 finally {
                     if (temp.exists())
                         temp.delete();
+
+                    stopService(new Intent(
+                            MainActivity.this,
+                            TransferGuardService.class));
                 }
             }
         }, "calibration-upload").start();
