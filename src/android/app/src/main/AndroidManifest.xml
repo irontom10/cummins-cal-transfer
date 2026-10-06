@@ -22,6 +22,8 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/caltool_icon"
+        android:roundIcon="@drawable/caltool_icon"
         android:label="Calibration Transfer"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
