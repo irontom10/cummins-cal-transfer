@@ -110,9 +110,13 @@ for abi in arm64-v8a armeabi-v7a; do
         libculn3r32.so \
         libkuln3r32.so
     do
-        match="$(find "$EXTRACT" -type f -path "*/$abi/$library" -print -quit)"
+        # Do not match stale app/build/intermediates copies shipped in the
+        # SDK ZIP.  The canonical runtime lives under app/src/main/jniLibs.
+        match="$(find "$EXTRACT" -type f \
+            -path "*/app/src/main/jniLibs/$abi/$library" \
+            -print -quit)"
         if [ -z "$match" ]; then
-            echo "ERROR: Could not find $library for $abi in the NEXIQ SDK."
+            echo "ERROR: Could not find canonical app/src/main/jniLibs/$abi/$library in the NEXIQ SDK."
             exit 1
         fi
 
@@ -120,7 +124,9 @@ for abi in arm64-v8a armeabi-v7a; do
     done
 done
 
-ini_anchor="$(find "$EXTRACT" -type f -iname "nuln3r32.ini" -print -quit)"
+ini_anchor="$(find "$EXTRACT" -type f \
+    -path "*/app/src/main/assets/Files/nuln3r32.ini" \
+    -print -quit)"
 if [ -z "$ini_anchor" ]; then
     echo "ERROR: Could not find nuln3r32.ini in the NEXIQ SDK."
     exit 1
