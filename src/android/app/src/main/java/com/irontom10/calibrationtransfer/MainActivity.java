@@ -907,6 +907,7 @@ public final class MainActivity extends Activity {
 
     private void setBusy(boolean value) {
         busy = value;
+        setTransferGuard(value);
 
         if (value)
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -924,6 +925,20 @@ public final class MainActivity extends Activity {
         pairButton.setEnabled(!value);
         pullButton.setEnabled(!value);
         uploadButton.setEnabled(!value);
+    }
+
+    private void setTransferGuard(boolean active) {
+        Intent intent = new Intent(this, TransferGuardService.class);
+
+        if (active) {
+            if (Build.VERSION.SDK_INT >= 26)
+                startForegroundService(intent);
+            else
+                startService(intent);
+        }
+        else {
+            stopService(intent);
+        }
     }
 
     private void showMessage(String title, String message) {
@@ -1566,6 +1581,18 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    public void onBackPressed() {
+        if (busy) {
+            showMessage(
+                    "Calibration Transfer In Progress",
+                    "Do not close the app or disconnect the adapter until the calibration transfer has finished.");
+            return;
+        }
+
+        super.onBackPressed();
+    }
+
+    @Override
     protected void onPause() {
         saveSettings();
         super.onPause();
@@ -1597,7 +1624,13 @@ public final class MainActivity extends Activity {
             }
         }
 
-        if (configLoaded) {
+        /*
+         * A foreground transfer deliberately survives task removal.  The
+         * worker thread still owns this Activity instance until native work
+         * returns, so do not tear down the shared native config store beneath
+         * it.  Normal destruction closes it as before.
+         */
+        if (configLoaded && !busy) {
             nativeBridge.configClose();
             configLoaded = false;
         }
