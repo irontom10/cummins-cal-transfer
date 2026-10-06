@@ -22,18 +22,33 @@ New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
 
 Expand-Archive -LiteralPath $Archive -DestinationPath $extractRoot -Force
 
-foreach ($abi in @("arm64-v8a", "armeabi-v7a")) {
-    $anchor = Get-ChildItem -LiteralPath $extractRoot -Recurse -File |
-        Where-Object { $_.Name -ieq "libnuln3r32.so" -and $_.Directory.Name -ieq $abi } |
-        Select-Object -First 1
-
-    if ($null -eq $anchor) {
-        throw "Could not find libnuln3r32.so for $abi in the NEXIQ SDK."
-    }
-
+@("arm64-v8a", "armeabi-v7a") | ForEach-Object {
+    $abi = $_
     $destination = Join-Path $jniRoot $abi
     New-Item -ItemType Directory -Force -Path $destination | Out-Null
-    Copy-Item -Path (Join-Path $anchor.Directory.FullName "*") -Destination $destination -Recurse -Force
+
+    foreach ($library in @(
+        "libc++_shared.so",
+        "libnuln2r32.so",
+        "libnuln3r32.so",
+        "libnblr32.so",
+        "libnbl2r32.so",
+        "libcil7r32.so",
+        "libcimr32.so",
+        "libcim16r32.so",
+        "libculn3r32.so",
+        "libkuln3r32.so"
+    )) {
+        $match = Get-ChildItem -LiteralPath $extractRoot -Recurse -File |
+            Where-Object { $_.Name -ieq $library -and $_.Directory.Name -ieq $abi } |
+            Select-Object -First 1
+
+        if ($null -eq $match) {
+            throw "Could not find $library for $abi in the NEXIQ SDK."
+        }
+
+        Copy-Item -LiteralPath $match.FullName -Destination (Join-Path $destination $library) -Force
+    }
 }
 
 $iniAnchor = Get-ChildItem -LiteralPath $extractRoot -Recurse -File |
