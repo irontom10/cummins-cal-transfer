@@ -25,6 +25,7 @@ public sealed class Rp1210Form : Form
     private NativeRP1210.ProgressCallback nativeProgress;
     private readonly UiConfig uiConfig = new UiConfig();
     private bool configLoaded;
+    private bool transferBusy;
 
     public Rp1210Form()
     {
@@ -55,8 +56,19 @@ public sealed class Rp1210Form : Form
             }
         };
 
-        FormClosing += delegate
+        FormClosing += delegate(object sender, FormClosingEventArgs e)
         {
+            if (transferBusy)
+            {
+                e.Cancel = true;
+                MessageBox.Show(
+                    "A calibration transfer is in progress. Do not close the application or disconnect the adapter until the transfer has finished.",
+                    "Calibration Transfer In Progress",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
             SaveConfiguration(false);
             uiConfig.Dispose();
         };
@@ -433,6 +445,8 @@ public sealed class Rp1210Form : Form
 
     private void SetBusy(bool busy)
     {
+        transferBusy = busy;
+
         apiCombo.Enabled = !busy;
         deviceCombo.Enabled = !busy;
         baudCombo.Enabled = !busy;

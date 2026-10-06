@@ -12,6 +12,22 @@ WRAPPER_JAR="$ROOT/gradle/wrapper/gradle-wrapper.jar"
 WRAPPER_URL="https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
 REMOVE_WRAPPER_JAR=0
 RC=1
+VARIANT="${ANDROID_BUILD_VARIANT:-Debug}"
+
+case "$VARIANT" in
+    Debug)
+        GRADLE_TASK="assembleDebug"
+        APK_PATH="src/android/app/build/outputs/apk/debug/app-debug.apk"
+        ;;
+    Release)
+        GRADLE_TASK="assembleRelease"
+        APK_PATH="src/android/app/build/outputs/apk/release/app-release.apk"
+        ;;
+    *)
+        echo "ERROR: ANDROID_BUILD_VARIANT must be Debug or Release."
+        exit 1
+        ;;
+esac
 
 cleanup() {
     rm -rf "$VENDOR"
@@ -150,14 +166,14 @@ if [ ! -f "$WRAPPER_JAR" ]; then
     REMOVE_WRAPPER_JAR=1
 fi
 
-echo "[android] Building Calibration Transfer APK..."
-sh "$ROOT/gradlew" -p "$ROOT" clean assembleDebug
+echo "[android] Building Calibration Transfer $VARIANT APK..."
+sh "$ROOT/gradlew" -p "$ROOT" clean "$GRADLE_TASK"
 RC=$?
 
 if [ "$RC" -eq 0 ]; then
     echo
     echo "Android build complete:"
-    echo "  src/android/app/build/outputs/apk/debug/app-debug.apk"
+    echo "  $APK_PATH"
 fi
 
 exit "$RC"

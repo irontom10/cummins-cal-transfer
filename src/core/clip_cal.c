@@ -8,6 +8,7 @@
 
 #include "clip_cal.h"
 #include "ccal_crc.h"
+#include "ct_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -741,6 +742,71 @@ static int clip_cal_parse_ccal(const char *filename, clip_cal_image *image)
     return rc;
 }
 
+static int clip_cal_validate_image(const clip_cal_image *image,
+                                   unsigned int *special_index,
+                                   unsigned long *total_out)
+{
+    const clip_cal_region *region;
+    unsigned long total;
+    unsigned int found_special;
+    unsigned int i;
+
+    if (image == NULL || image->count == 0U) {
+        return CLIP_CAL_ERR_LAYOUT;
+    }
+
+    total = 0UL;
+    found_special = 0U;
+
+    for (i = 0U; i < image->count; ++i) {
+        region = &image->region[i];
+
+        if (region->length == 0UL) {
+            return CLIP_CAL_ERR_LAYOUT;
+        }
+
+        if (region->address == CLIP_CAL_SHORT_ADDR) {
+            if (found_special != 0U) {
+                return CLIP_CAL_ERR_LAYOUT;
+            }
+            if (region->length > 253UL) {
+                return CLIP_CAL_ERR_RANGE;
+            }
+            found_special = 1U;
+            if (special_index != NULL) {
+                *special_index = i;
+            }
+        } else {
+            if (region->address > 0xFFFFFFUL ||
+                region->length > 0xFFFFFFUL ||
+                region->length > 0xFFFFFEUL) {
+                return CLIP_CAL_ERR_RANGE;
+            }
+
+            if (region->address >
+                0x1000000UL - region->length - 2UL) {
+                return CLIP_CAL_ERR_RANGE;
+            }
+        }
+
+        if (total > ULONG_MAX - 2UL ||
+            region->length > ULONG_MAX - total - 2UL) {
+            return CLIP_CAL_ERR_RANGE;
+        }
+        total += region->length + 2UL;
+    }
+
+    if (found_special == 0U) {
+        return CLIP_CAL_ERR_LAYOUT;
+    }
+
+    if (total_out != NULL) {
+        *total_out = total;
+    }
+
+    return CLIP_CAL_OK;
+}
+
 unsigned int clip_cal_crc16_kermit(const unsigned char *data,
                                    unsigned long length)
 {
@@ -777,6 +843,32 @@ int clip_cal_verify_ccal_crc(const char *filename)
     if (!ccal_check_file_crc(filename))
         return 0;
     return 1;
+}
+
+int clip_cal_validate_ccal(const char *filename)
+{
+    clip_cal_image image;
+    int rc;
+
+    if (filename == NULL || filename[0] == '\0') {
+        return CLIP_CAL_ERR_ARGUMENT;
+    }
+
+    if (!clip_cal_verify_ccal_crc(filename)) {
+        return CLIP_CAL_ERR_CRC;
+    }
+
+    image.region = NULL;
+    image.count = 0U;
+    image.capacity = 0U;
+
+    rc = clip_cal_parse_ccal(filename, &image);
+    if (rc == CLIP_CAL_OK) {
+        rc = clip_cal_validate_image(&image, NULL, NULL);
+    }
+
+    clip_cal_image_free(&image);
+    return rc;
 }
 
 void clip_cal_options_init(clip_cal_options *options)
@@ -834,6 +926,10 @@ static int clip_cal_send_and_wait(const clip_cal_io *io,
     unsigned char rx[CLIP_CAL_RX_MAX];
     unsigned int rx_len;
     unsigned int skipped;
+    unsigned long start;
+    unsigned long now;
+    unsigned long elapsed;
+    unsigned long remaining;
     int trc;
 
     trc = io->send(io->user, request, request_len);
@@ -842,12 +938,23 @@ static int clip_cal_send_and_wait(const clip_cal_io *io,
     }
 
     skipped = 0U;
+    start = ct_monotonic_ms();
+
     while (skipped < CLIP_CAL_MAX_SKIPPED_RX) {
-        rx_len = 0U;
-        trc = io->recv(io->user, rx, sizeof(rx), &rx_len,
-                       options->timeout_ms);
-        if (trc != 0) {
+        now = ct_monotonic_ms();
+        elapsed = (unsigned long)(now - start);
+        if (elapsed >= options->timeout_ms) {
             return CLIP_CAL_ERR_TIMEOUT;
+        }
+        remaining = options->timeout_ms - elapsed;
+
+        rx_len = 0U;
+        trc = io->recv(io->user, rx, sizeof(rx), &rx_len, remaining);
+        if (trc > 0) {
+            return CLIP_CAL_ERR_TIMEOUT;
+        }
+        if (trc < 0) {
+            return CLIP_CAL_ERR_TRANSPORT;
         }
         if (rx_len > sizeof(rx)) {
             return CLIP_CAL_ERR_TRANSPORT;
@@ -1086,10 +1193,13 @@ int clip_cal_send_ccal(const char *filename,
         return CLIP_CAL_ERR_ARGUMENT;
     }
 
-    /* Hard safety gate: never enter programming mode with a CCAL whose
-       calibration file-level CRC token does not validate. */
-    if (!clip_cal_verify_ccal_crc(filename)) {
-        return CLIP_CAL_ERR_CRC;
+    /*
+     * Keep the sender independently defensive even though the outer transfer
+     * layer performs this same full preflight before opening the adapter.
+     */
+    rc = clip_cal_validate_ccal(filename);
+    if (rc != CLIP_CAL_OK) {
+        return rc;
     }
 
     if (options == NULL) {
@@ -1113,29 +1223,15 @@ int clip_cal_send_ccal(const char *filename,
         return rc;
     }
 
-    special = NULL;
     special_index = 0U;
-    for (i = 0U; i < image.count; ++i) {
-        if (image.region[i].address == CLIP_CAL_SHORT_ADDR) {
-            special = &image.region[i];
-            special_index = i;
-            break;
-        }
-    }
-
-    if (special == NULL) {
-        clip_cal_image_free(&image);
-        return CLIP_CAL_ERR_LAYOUT;
-    }
-
     total = 0UL;
-    for (i = 0U; i < image.count; ++i) {
-        if (image.region[i].length > ULONG_MAX - total - 2UL) {
-            clip_cal_image_free(&image);
-            return CLIP_CAL_ERR_RANGE;
-        }
-        total += image.region[i].length + 2UL;
+    rc = clip_cal_validate_image(&image, &special_index, &total);
+    if (rc != CLIP_CAL_OK) {
+        clip_cal_image_free(&image);
+        return rc;
     }
+
+    special = &image.region[special_index];
     sent = 0UL;
 
     if (opt->send_start_command) {

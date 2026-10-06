@@ -22,6 +22,7 @@
 #define J1939_RP1210_RX_OVERHEAD             32U
 
 #define RP1210_CMD_SET_J1939_FILTER            4
+#define RP1210_CMD_ECHO_TRANSMITTED_MESSAGES  16
 #define RP1210_CMD_SET_ALL_FILTERS_DISCARD    17
 #define RP1210_CMD_PROTECT_J1939_ADDRESS      19
 #define RP1210_CMD_SET_J1939_FILTER_TYPE      25
@@ -176,7 +177,25 @@ connect_j1939(struct j1939_transport *transport,
     if (rc != J1939_TRANSPORT_ERR_CONNECT)
         return rc;
 
-    return open_protocol(transport, api_name, device_id, "J1939");
+    {
+        const char *lower_error;
+        char tmp[512];
+
+        lower_error = rp1210_transport_error(transport->rp1210);
+        if (lower_error != NULL && lower_error[0] != '\0') {
+            sprintf(tmp,
+                    "Unable to connect at requested J1939 bitrate %d bit/s: %.390s",
+                    baud,
+                    lower_error);
+        } else {
+            sprintf(tmp,
+                    "Unable to connect at requested J1939 bitrate %d bit/s.",
+                    baud);
+        }
+        set_error_text(transport, tmp);
+    }
+
+    return rc;
 }
 
 static int
@@ -210,10 +229,27 @@ command_or_connect_error(struct j1939_transport *transport,
 static int
 configure_j1939(struct j1939_transport *transport)
 {
+    unsigned char echo_mode;
     unsigned char filter_type;
     unsigned char filter[7];
     unsigned char claim[10];
     int rc;
+
+    /*
+     * The J1939 receive parser below uses the RP1210 echo-off layout:
+     * timestamp[4], PGN[3], priority, source, destination, payload.
+     * Echo mode inserts one byte after the timestamp, so force it off rather
+     * than depending on a vendor default.
+     */
+    echo_mode = 0x00U;
+    rc = command_or_connect_error(
+        transport,
+        RP1210_CMD_ECHO_TRANSMITTED_MESSAGES,
+        &echo_mode,
+        1U,
+        "RP1210 Echo_Transmitted_Messages (off)");
+    if (rc != J1939_TRANSPORT_OK)
+        return rc;
 
     rc = command_or_connect_error(
         transport,

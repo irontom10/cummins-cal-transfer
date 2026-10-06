@@ -14,6 +14,18 @@ set "WRAPPER_URL=https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/w
 set "REMOVE_WRAPPER_JAR=0"
 set "RC=1"
 
+if not defined ANDROID_BUILD_VARIANT set "ANDROID_BUILD_VARIANT=Debug"
+if /I "%ANDROID_BUILD_VARIANT%"=="Debug" (
+    set "GRADLE_TASK=assembleDebug"
+    set "APK_PATH=src\android\app\build\outputs\apk\debug\app-debug.apk"
+) else if /I "%ANDROID_BUILD_VARIANT%"=="Release" (
+    set "GRADLE_TASK=assembleRelease"
+    set "APK_PATH=src\android\app\build\outputs\apk\release\app-release.apk"
+) else (
+    echo ERROR: ANDROID_BUILD_VARIANT must be Debug or Release.
+    exit /b 1
+)
+
 if exist "%VENDOR%" rmdir /S /Q "%VENDOR%"
 if not exist "%CACHE%" mkdir "%CACHE%"
 if errorlevel 1 goto :cleanup
@@ -84,14 +96,14 @@ if not exist "local.properties" (
     )
 )
 
-echo [android] Building Calibration Transfer APK...
-call "%ROOT%\gradlew.bat" clean assembleDebug
+echo [android] Building Calibration Transfer %ANDROID_BUILD_VARIANT% APK...
+call "%ROOT%\gradlew.bat" clean %GRADLE_TASK%
 set "RC=%ERRORLEVEL%"
 
 if "%RC%"=="0" (
     echo.
     echo Android build complete:
-    echo   src\android\app\build\outputs\apk\debug\app-debug.apk
+    echo   %APK_PATH%
 )
 
 :cleanup
