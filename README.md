@@ -87,7 +87,7 @@ Run:
 .\build-android.bat
 ```
 
-The Android build temporarily clones the private `irontom10/rp1210-android-test` repository to obtain the tested mobile RP1210 vendor runtime, builds the APK, then deletes the staged private checkout. The vendor blobs are therefore not committed to this public repository.
+The Android build downloads NEXIQ's official Mobile Native Android RP1210 SDK directly from NEXIQ, stages the required runtime files only for the duration of the build, packages the APK, then deletes the staged SDK/runtime files. The vendor blobs are therefore not committed to this repository.
 
 See `src/android/README.md` for details.
 
