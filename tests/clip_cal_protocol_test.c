@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "clip_cal.h"
+#include "ccal_crc.h"
 
 static void
 test_mode_request(void)
@@ -80,6 +81,45 @@ test_sequence_and_crc(void)
     assert(clip_cal_crc16_kermit(text, 9UL) == 0x2189U);
 }
 
+static void
+write_ccal_fixture(const char *path, int include_loader_metadata)
+{
+    FILE *fp;
+
+    fp = fopen(path, "wb");
+    assert(fp != NULL);
+
+    assert(fputs("0000\n", fp) >= 0);
+
+    if (include_loader_metadata) {
+        assert(fputs(":0200000400A05A\n", fp) >= 0);
+        assert(fputs(":0100000012ED\n", fp) >= 0);
+    } else {
+        assert(fputs(":020000040010EA\n", fp) >= 0);
+        assert(fputs(":0100000034CB\n", fp) >= 0);
+    }
+
+    assert(fputs(":00000001FF\n", fp) >= 0);
+    assert(fclose(fp) == 0);
+    assert(ccal_set_cal_file_crc(path) != 0);
+}
+
+static void
+test_full_ccal_preflight(void)
+{
+    const char *valid_path = "build/tests/valid-preflight.ccal";
+    const char *bad_layout_path = "build/tests/bad-layout.ccal";
+
+    write_ccal_fixture(valid_path, 1);
+    write_ccal_fixture(bad_layout_path, 0);
+
+    assert(clip_cal_validate_ccal(valid_path) == CLIP_CAL_OK);
+    assert(clip_cal_validate_ccal(bad_layout_path) == CLIP_CAL_ERR_LAYOUT);
+
+    remove(valid_path);
+    remove(bad_layout_path);
+}
+
 int
 main(void)
 {
@@ -88,6 +128,7 @@ main(void)
     test_read_request();
     test_memory_descriptor();
     test_sequence_and_crc();
+    test_full_ccal_preflight();
 
     puts("clip_cal protocol tests passed");
     return 0;
