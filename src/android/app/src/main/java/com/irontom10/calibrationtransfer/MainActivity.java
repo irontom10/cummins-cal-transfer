@@ -276,24 +276,16 @@ public final class MainActivity extends Activity {
 
         driverSpinner = new Spinner(this);
         ArrayAdapter<DriverProfile> driverAdapter =
-                new ArrayAdapter<DriverProfile>(
-                        this,
-                        android.R.layout.simple_spinner_item,
-                        DRIVERS);
-        driverAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
+                largeSpinnerAdapter(DRIVERS);
         driverSpinner.setAdapter(driverAdapter);
+        driverSpinner.setMinimumHeight(dp(56));
         driverSpinner.setSelection(1);
         root.addView(row("Vendor:", driverSpinner), fullWidth());
 
         deviceSpinner = new Spinner(this);
-        deviceAdapter = new ArrayAdapter<DeviceEntry>(
-                this,
-                android.R.layout.simple_spinner_item,
-                deviceRows);
-        deviceAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
+        deviceAdapter = largeSpinnerAdapter(deviceRows);
         deviceSpinner.setAdapter(deviceAdapter);
+        deviceSpinner.setMinimumHeight(dp(56));
         root.addView(row("Device:", deviceSpinner), fullWidth());
 
         LinearLayout btButtons = new LinearLayout(this);
@@ -314,24 +306,20 @@ public final class MainActivity extends Activity {
         root.addView(row("MAC:", macEdit), fullWidth());
 
         protocolSpinner = new Spinner(this);
-        ArrayAdapter<String> protocolAdapter = new ArrayAdapter<String>(
-                this,
-                android.R.layout.simple_spinner_item,
-                new String[] { "J1939" });
+        ArrayAdapter<String> protocolAdapter =
+                largeSpinnerAdapter(new String[] { "J1939" });
         protocolSpinner.setAdapter(protocolAdapter);
+        protocolSpinner.setMinimumHeight(dp(56));
         protocolSpinner.setEnabled(false);
         root.addView(row("Protocol:", protocolSpinner), fullWidth());
 
         baudSpinner = new Spinner(this);
-        ArrayAdapter<String> baudAdapter = new ArrayAdapter<String>(
-                this,
-                android.R.layout.simple_spinner_item,
-                new String[] {
+        ArrayAdapter<String> baudAdapter =
+                largeSpinnerAdapter(new String[] {
                         "Auto", "125000", "250000", "500000", "1000000"
                 });
-        baudAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
         baudSpinner.setAdapter(baudAdapter);
+        baudSpinner.setMinimumHeight(dp(56));
         baudSpinner.setSelection(2);
         root.addView(row("Baud:", baudSpinner), fullWidth());
 
@@ -422,6 +410,78 @@ public final class MainActivity extends Activity {
                 chooseUploadSource();
             }
         });
+    }
+
+    private <T> ArrayAdapter<T> largeSpinnerAdapter(final T[] items) {
+        return new ArrayAdapter<T>(
+                this,
+                android.R.layout.simple_spinner_item,
+                items) {
+            private View sizeView(View view) {
+                if (view instanceof TextView) {
+                    TextView text = (TextView)view;
+                    text.setTextSize(18.0f);
+                    text.setMinHeight(dp(56));
+                    text.setGravity(Gravity.CENTER_VERTICAL);
+                    text.setPadding(dp(10), 0, dp(10), 0);
+                }
+                return view;
+            }
+
+            @Override
+            public View getView(
+                    int position,
+                    View convertView,
+                    android.view.ViewGroup parent) {
+                return sizeView(
+                        super.getView(position, convertView, parent));
+            }
+
+            @Override
+            public View getDropDownView(
+                    int position,
+                    View convertView,
+                    android.view.ViewGroup parent) {
+                return sizeView(
+                        super.getDropDownView(position, convertView, parent));
+            }
+        };
+    }
+
+    private <T> ArrayAdapter<T> largeSpinnerAdapter(final List<T> items) {
+        return new ArrayAdapter<T>(
+                this,
+                android.R.layout.simple_spinner_item,
+                items) {
+            private View sizeView(View view) {
+                if (view instanceof TextView) {
+                    TextView text = (TextView)view;
+                    text.setTextSize(18.0f);
+                    text.setMinHeight(dp(56));
+                    text.setGravity(Gravity.CENTER_VERTICAL);
+                    text.setPadding(dp(10), 0, dp(10), 0);
+                }
+                return view;
+            }
+
+            @Override
+            public View getView(
+                    int position,
+                    View convertView,
+                    android.view.ViewGroup parent) {
+                return sizeView(
+                        super.getView(position, convertView, parent));
+            }
+
+            @Override
+            public View getDropDownView(
+                    int position,
+                    View convertView,
+                    android.view.ViewGroup parent) {
+                return sizeView(
+                        super.getDropDownView(position, convertView, parent));
+            }
+        };
     }
 
     private LinearLayout row(String labelText, View control) {
