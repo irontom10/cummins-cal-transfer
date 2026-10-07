@@ -200,6 +200,24 @@ jobs:
           git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
           git push --force origin "refs/tags/$RELEASE_TAG"
 
+      - name: Publish latest builds directory
+        shell: bash
+        run: |
+          rm -rf builds/latest
+          mkdir -p builds/latest
+          cp release-assets/* builds/latest/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f builds/latest
+
+          if git diff --cached --quiet; then
+            echo "Latest build files are already current."
+          else
+            git commit -m "Update latest build artifacts [skip ci]"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
+
       - name: Publish GitHub release
         shell: bash
         env:
