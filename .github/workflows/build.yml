@@ -157,15 +157,20 @@ jobs:
           rm -rf builds/latest
           mkdir -p builds/latest
 
+          # GitHub rejects individual Git blobs larger than 100 MiB.
+          # Keep the normal EXE inside the archive; users just unzip and run it.
           cp latest-input/windows/CalibrationTransfer.exe \
             builds/latest/CalibrationTransfer-win-x86.exe
+          (cd builds/latest && zip -9 CalibrationTransfer-win-x86.zip CalibrationTransfer-win-x86.exe)
+          rm builds/latest/CalibrationTransfer-win-x86.exe
+
           cp latest-input/android/app-debug.apk \
             builds/latest/CalibrationTransfer-android.apk
 
           (
             cd builds/latest
-            sha256sum CalibrationTransfer-win-x86.exe \
-              > CalibrationTransfer-win-x86.exe.sha256
+            sha256sum CalibrationTransfer-win-x86.zip \
+              > CalibrationTransfer-win-x86.zip.sha256
             sha256sum CalibrationTransfer-android.apk \
               > CalibrationTransfer-android.apk.sha256
           )
