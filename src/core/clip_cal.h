@@ -57,7 +57,7 @@
 /* reference tool used 0x03E8-byte reads for the captured main readback. */
 #define CLIP_CAL_DEFAULT_CHUNK_SIZE     1000U
 
-/* Conservative parser capacity; the supplied descriptor contains four. */
+/* Conservative parser capacity; observed descriptors currently contain up to five. */
 #define CLIP_CAL_MAX_RANGES             16U
 #define CLIP_CAL_MAX_TRAILER            32U
 
@@ -145,19 +145,20 @@ clip_cal_parse_reply(const clip_u8 *pdu,
 /*
  * Parse the response to CLIP_CAL_ID_MEMORY_DESCRIPTOR.
  *
- * The supplied CM2350A descriptor has:
+ * Observed descriptor layout:
  *   u32 descriptor_value
- *   u16 count_a
- *   u16 count_b
- *   u32 start[count_b]
- *   u32 auxiliary[count_b]
- *   u32 length_count
- *   u32 length[length_count]
+ *   u16 range_count
+ *   u16 address_width
+ *   address[range_count][address_width]
+ *   u16 auxiliary_width
+ *   auxiliary[range_count][auxiliary_width]
+ *   u16 length_width
+ *   length[range_count][length_width]
  *   trailing bytes
  *
- * count_a, count_b and length_count were all four in the capture.  The parser
- * requires them to agree and intentionally does not assign semantics to the
- * descriptor_value, auxiliary array, or trailer yet.
+ * Widths are big-endian element widths in bytes and are currently accepted
+ * from 1 through 4.  descriptor_value, auxiliary values, and trailer bytes are
+ * preserved without assigning stronger semantics than the captures support.
  */
 int
 clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
