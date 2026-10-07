@@ -282,6 +282,9 @@ public final class MainActivity extends Activity {
         title.setPadding(0, 0, 0, pad);
         root.addView(title, fullWidth());
 
+        Button infoButton = button("Info");
+        root.addView(infoButton, fullWidth());
+
         driverSpinner = new Spinner(this);
         ArrayAdapter<DriverProfile> driverAdapter =
                 largeSpinnerAdapter(DRIVERS);
@@ -364,6 +367,12 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         setContentView(scroll);
+
+        infoButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                showInfo();
+            }
+        });
 
         refreshButton.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -950,6 +959,67 @@ public final class MainActivity extends Activity {
         else {
             stopService(intent);
         }
+    }
+
+    private String buildInfoText() {
+        String versionName;
+        long versionCode;
+        String driver = "Not selected";
+        String device = "Not selected";
+        String mac = "";
+        String baud = "Unknown";
+
+        try {
+            android.content.pm.PackageInfo info =
+                    getPackageManager().getPackageInfo(getPackageName(), 0);
+            versionName = info.versionName == null ? "unknown" : info.versionName;
+            if (Build.VERSION.SDK_INT >= 28)
+                versionCode = info.getLongVersionCode();
+            else
+                versionCode = info.versionCode;
+        }
+        catch (PackageManager.NameNotFoundException e) {
+            versionName = "unknown";
+            versionCode = -1;
+        }
+
+        if (driverSpinner != null && driverSpinner.getSelectedItem() != null)
+            driver = String.valueOf(driverSpinner.getSelectedItem());
+        if (deviceSpinner != null && deviceSpinner.getSelectedItem() != null)
+            device = String.valueOf(deviceSpinner.getSelectedItem());
+        if (macEdit != null)
+            mac = macEdit.getText().toString().trim();
+        if (baudSpinner != null && baudSpinner.getSelectedItem() != null)
+            baud = String.valueOf(baudSpinner.getSelectedItem());
+
+        return "App version: " + versionName +
+                "\nVersion code: " + versionCode +
+                "\nBuild: " +
+                (((getApplicationInfo().flags &
+                   android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0)
+                        ? "debug" : "release") +
+                "\nPackage: " + getPackageName() +
+                "\nAndroid: " + Build.VERSION.RELEASE +
+                " (SDK " + Build.VERSION.SDK_INT + ")" +
+                "\nDevice: " + Build.MANUFACTURER + " " + Build.MODEL +
+                "\nABI: " + Build.SUPPORTED_ABIS[0] +
+                "\n\nRP1210 vendor: " + driver +
+                "\nAdapter: " + device +
+                "\nMAC: " + (mac.length() == 0 ? "Not selected" : mac) +
+                "\nProtocol: J1939" +
+                "\nBaud: " + baud +
+                "\nTool SA: " +
+                (toolSaEdit == null ? "Unknown" : toolSaEdit.getText()) +
+                "\nECM SA: " +
+                (ecmSaEdit == null ? "Unknown" : ecmSaEdit.getText());
+    }
+
+    private void showInfo() {
+        new AlertDialog.Builder(this)
+                .setTitle("Build / Diagnostic Info")
+                .setMessage(buildInfoText())
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private void logBuildInfo() {
