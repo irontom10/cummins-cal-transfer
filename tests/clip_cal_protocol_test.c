@@ -112,6 +112,136 @@ test_memory_descriptor(void)
 }
 
 static void
+test_memory_descriptor_corpus_shapes(void)
+{
+    /*
+     * Distilled descriptor vectors from the December 2025 INCAL corpus.
+     * These cover every range-count/width shape measured in that scan:
+     * 3/4/4/4, 4/4/4/4, and 5/4/4/4.
+     */
+    static const clip_u8 reply3[] = {
+        0x01U, 0x00U,
+        0x00U, 0x2eU, 0x06U, 0xd6U,
+        0x00U, 0x03U, 0x00U, 0x04U,
+        0x00U, 0x00U, 0x10U, 0x80U,
+        0x00U, 0x00U, 0x41U, 0x00U,
+        0x00U, 0x04U, 0x00U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x2fU, 0x78U,
+        0x00U, 0x00U, 0x62U, 0xf8U,
+        0x00U, 0x1cU, 0x00U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x2fU, 0x78U,
+        0x00U, 0x00U, 0x55U, 0xb0U,
+        0x00U, 0x1aU, 0xbfU, 0xd8U
+    };
+    static const clip_u8 reply4[] = {
+        0x01U, 0x00U,
+        0x00U, 0x3aU, 0x06U, 0xd6U,
+        0x00U, 0x04U, 0x00U, 0x04U,
+        0x00U, 0xa0U, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x10U, 0x80U,
+        0x00U, 0x00U, 0x41U, 0x00U,
+        0x00U, 0x10U, 0x00U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x00U, 0x10U,
+        0x00U, 0x00U, 0x2fU, 0x78U,
+        0x00U, 0x00U, 0xb6U, 0x57U,
+        0x00U, 0x10U, 0x00U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x00U, 0x10U,
+        0x00U, 0x00U, 0x2fU, 0x78U,
+        0x00U, 0x00U, 0xb6U, 0x50U,
+        0x00U, 0x09U, 0x02U, 0x38U
+    };
+    static const clip_u8 reply5[] = {
+        0x01U, 0x00U,
+        0x00U, 0x46U, 0x00U, 0xf0U,
+        0x00U, 0x05U, 0x00U, 0x04U,
+        0x00U, 0x01U, 0x00U, 0x00U,
+        0x00U, 0x04U, 0xc0U, 0x00U,
+        0x00U, 0x52U, 0x00U, 0x00U,
+        0x00U, 0x5fU, 0x00U, 0x00U,
+        0x01U, 0x00U, 0x01U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x03U, 0xc0U, 0x00U,
+        0x00U, 0x02U, 0x40U, 0x00U,
+        0x00U, 0x0aU, 0x80U, 0x00U,
+        0x00U, 0x00U, 0x80U, 0x00U,
+        0x00U, 0x00U, 0x3eU, 0xfeU,
+        0x00U, 0x04U,
+        0x00U, 0x03U, 0x9dU, 0xe0U,
+        0x00U, 0x02U, 0x36U, 0x5cU,
+        0x00U, 0x0aU, 0x46U, 0xd8U,
+        0x00U, 0x00U, 0x49U, 0xf8U,
+        0x00U, 0x00U, 0x15U, 0x2aU
+    };
+    struct clip_cal_map map;
+
+    memset(&map, 0, sizeof(map));
+    assert(clip_cal_parse_memory_descriptor(
+               reply3, sizeof(reply3), 0x00U, &map) == CLIP_CAL_OK);
+    assert(map.descriptor_value == (clip_u32)0x002e06d6UL);
+    assert(map.range_count == 3U);
+    assert(map.ranges[0].address == (clip_u32)0x00001080UL);
+    assert(map.ranges[2].address == (clip_u32)0x00040000UL);
+    assert(map.ranges[2].length == (clip_u32)0x001abfd8UL);
+
+    memset(&map, 0, sizeof(map));
+    assert(clip_cal_parse_memory_descriptor(
+               reply4, sizeof(reply4), 0x00U, &map) == CLIP_CAL_OK);
+    assert(map.descriptor_value == (clip_u32)0x003a06d6UL);
+    assert(map.range_count == 4U);
+    assert(map.ranges[0].address == (clip_u32)0x00a00000UL);
+    assert(map.ranges[3].address == (clip_u32)0x00100000UL);
+    assert(map.ranges[3].length == (clip_u32)0x00090238UL);
+
+    memset(&map, 0, sizeof(map));
+    assert(clip_cal_parse_memory_descriptor(
+               reply5, sizeof(reply5), 0x00U, &map) == CLIP_CAL_OK);
+    assert(map.descriptor_value == (clip_u32)0x004600f0UL);
+    assert(map.range_count == 5U);
+    assert(map.ranges[0].address == (clip_u32)0x00010000UL);
+    assert(map.ranges[4].address == (clip_u32)0x01000100UL);
+    assert(map.ranges[4].length == (clip_u32)0x0000152aUL);
+}
+
+static void
+test_memory_descriptor_auxiliary_is_opaque(void)
+{
+    /*
+     * The corpus contained 264 exact-match descriptors where auxiliary was
+     * smaller than length.  This synthetic vector makes that relationship
+     * explicit so it cannot accidentally become a validation rule later.
+     */
+    static const clip_u8 reply[] = {
+        0x01U, 0x55U,
+        0x00U, 0x2eU, 0x06U, 0xd6U,
+        0x00U, 0x03U, 0x00U, 0x04U,
+        0x00U, 0x00U, 0x10U, 0x80U,
+        0x00U, 0x00U, 0x41U, 0x00U,
+        0x00U, 0x04U, 0x00U, 0x00U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x00U, 0x01U,
+        0x00U, 0x00U, 0x00U, 0x02U,
+        0x00U, 0x00U, 0x00U, 0x03U,
+        0x00U, 0x04U,
+        0x00U, 0x00U, 0x2fU, 0x78U,
+        0x00U, 0x00U, 0x55U, 0xb0U,
+        0x00U, 0x1aU, 0xbfU, 0xd8U
+    };
+    struct clip_cal_map map;
+
+    memset(&map, 0, sizeof(map));
+    assert(clip_cal_parse_memory_descriptor(
+               reply, sizeof(reply), 0x55U, &map) == CLIP_CAL_OK);
+    assert(map.range_count == 3U);
+    assert(map.ranges[0].auxiliary < map.ranges[0].length);
+    assert(map.ranges[1].auxiliary < map.ranges[1].length);
+    assert(map.ranges[2].auxiliary < map.ranges[2].length);
+}
+
+static void
 test_sequence_and_crc(void)
 {
     static const unsigned char text[] = "123456789";
@@ -167,6 +297,8 @@ main(void)
     test_query_request();
     test_read_request();
     test_memory_descriptor();
+    test_memory_descriptor_corpus_shapes();
+    test_memory_descriptor_auxiliary_is_opaque();
     test_sequence_and_crc();
     test_full_ccal_preflight();
 
