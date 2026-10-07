@@ -468,14 +468,7 @@ j1939_transport_receive(struct j1939_transport *transport,
          */
         {
             size_t header_len;
-            size_t pgn_off;
-            size_t source_off;
-            size_t destination_off;
-
             header_len = 0U;
-            pgn_off = 0U;
-            source_off = 0U;
-            destination_off = 0U;
 
             if (message_len >= 10U) {
                 pgn = (unsigned long)buffer[4] |
@@ -489,9 +482,6 @@ j1939_transport_receive(struct j1939_transport *transport,
                     (destination_address == transport->source_address ||
                      destination_address == 0xffU)) {
                     header_len = 10U;
-                    pgn_off = 4U;
-                    source_off = 8U;
-                    destination_off = 9U;
                 }
             }
 
@@ -507,15 +497,8 @@ j1939_transport_receive(struct j1939_transport *transport,
                     (destination_address == transport->source_address ||
                      destination_address == 0xffU)) {
                     header_len = 11U;
-                    pgn_off = 5U;
-                    source_off = 9U;
-                    destination_off = 10U;
                 }
             }
-
-            (void)pgn_off;
-            (void)source_off;
-            (void)destination_off;
 
             if (header_len != 0U) {
                 n_payload = message_len - header_len;
