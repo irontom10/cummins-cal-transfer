@@ -19,6 +19,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Gravity;
@@ -52,6 +53,7 @@ public final class MainActivity extends Activity {
     private static final int PERMISSION_REQUEST = 1001;
     private static final int CREATE_PULL_FILE = 2001;
     private static final int OPEN_UPLOAD_FILE = 2002;
+    private static final String LOG_TAG = "CalibrationTransfer";
 
     private static final Pattern MAC_PATTERN = Pattern.compile(
             "(?i)([0-9A-F]{2}:){5}[0-9A-F]{2}");
@@ -250,6 +252,7 @@ public final class MainActivity extends Activity {
         bluetoothAdapter = manager != null ? manager.getAdapter() : null;
 
         buildUi();
+        logBuildInfo();
         registerBluetoothReceiver();
         copyVendorFiles();
         loadSettings();
@@ -947,6 +950,33 @@ public final class MainActivity extends Activity {
         else {
             stopService(intent);
         }
+    }
+
+    private void logBuildInfo() {
+        String versionName;
+        long versionCode;
+
+        try {
+            android.content.pm.PackageInfo info =
+                    getPackageManager().getPackageInfo(getPackageName(), 0);
+            versionName = info.versionName == null ? "unknown" : info.versionName;
+            if (Build.VERSION.SDK_INT >= 28)
+                versionCode = info.getLongVersionCode();
+            else
+                versionCode = info.versionCode;
+        }
+        catch (PackageManager.NameNotFoundException e) {
+            versionName = "unknown";
+            versionCode = -1;
+        }
+
+        Log.i(LOG_TAG,
+                "Build info: version=" + versionName +
+                " versionCode=" + versionCode +
+                " buildType=" + BuildConfig.BUILD_TYPE +
+                " sdk=" + Build.VERSION.SDK_INT +
+                " device=" + Build.MANUFACTURER + " " + Build.MODEL +
+                " abi=" + Build.SUPPORTED_ABIS[0]);
     }
 
     private void showMessage(String title, String message) {
