@@ -48,26 +48,66 @@ test_read_request(void)
 static void
 test_memory_descriptor(void)
 {
+    /*
+     * Exact 74-byte positive descriptor reply captured from a CM23xx ECM.
+     * It proves the second 16-bit field is an element width, not a duplicate
+     * range count: range_count=5 while all three array widths are 4 bytes.
+     */
     static const clip_u8 reply[] = {
-        0x01U, 0x2aU,
-        0x11U, 0x22U, 0x33U, 0x44U,
-        0x00U, 0x01U,
-        0x00U, 0x01U,
-        0x00U, 0x10U, 0x00U, 0x00U,
-        0x55U, 0x66U, 0x77U, 0x88U,
-        0x00U, 0x00U, 0x00U, 0x01U,
-        0x00U, 0x00U, 0x03U, 0xe8U
+        0x01U, 0x17U,
+        0x00U, 0x46U, 0x06U, 0x72U,
+        0x00U, 0x05U,
+        0x00U, 0x04U,
+
+        0x00U, 0x01U, 0x00U, 0x00U,
+        0x00U, 0x50U, 0x00U, 0x00U,
+        0x00U, 0x60U, 0x00U, 0x00U,
+        0x00U, 0x64U, 0x00U, 0x00U,
+        0x01U, 0x00U, 0x02U, 0x80U,
+
+        0x00U, 0x04U,
+        0x00U, 0x06U, 0x00U, 0x00U,
+        0x00U, 0x0fU, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x49U, 0x30U,
+        0x00U, 0x0cU, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x1dU, 0x7fU,
+
+        0x00U, 0x04U,
+        0x00U, 0x05U, 0x11U, 0xf8U,
+        0x00U, 0x0dU, 0x4cU, 0xa4U,
+        0x00U, 0x00U, 0x49U, 0x30U,
+        0x00U, 0x07U, 0x6eU, 0x30U,
+        0x00U, 0x00U, 0x0bU, 0xa4U
     };
     struct clip_cal_map map;
 
     memset(&map, 0, sizeof(map));
     assert(clip_cal_parse_memory_descriptor(
-               reply, sizeof(reply), 0x2aU, &map) == CLIP_CAL_OK);
-    assert(map.descriptor_value == (clip_u32)0x11223344UL);
-    assert(map.range_count == 1U);
-    assert(map.ranges[0].address == (clip_u32)0x00100000UL);
-    assert(map.ranges[0].auxiliary == (clip_u32)0x55667788UL);
-    assert(map.ranges[0].length == (clip_u32)1000UL);
+               reply, sizeof(reply), 0x17U, &map) == CLIP_CAL_OK);
+
+    assert(map.descriptor_value == (clip_u32)0x00460672UL);
+    assert(map.range_count == 5U);
+
+    assert(map.ranges[0].address == (clip_u32)0x00010000UL);
+    assert(map.ranges[0].auxiliary == (clip_u32)0x00060000UL);
+    assert(map.ranges[0].length == (clip_u32)0x000511f8UL);
+
+    assert(map.ranges[1].address == (clip_u32)0x00500000UL);
+    assert(map.ranges[1].auxiliary == (clip_u32)0x000f0000UL);
+    assert(map.ranges[1].length == (clip_u32)0x000d4ca4UL);
+
+    assert(map.ranges[2].address == (clip_u32)0x00600000UL);
+    assert(map.ranges[2].auxiliary == (clip_u32)0x00004930UL);
+    assert(map.ranges[2].length == (clip_u32)0x00004930UL);
+
+    assert(map.ranges[3].address == (clip_u32)0x00640000UL);
+    assert(map.ranges[3].auxiliary == (clip_u32)0x000c0000UL);
+    assert(map.ranges[3].length == (clip_u32)0x00076e30UL);
+
+    assert(map.ranges[4].address == (clip_u32)0x01000280UL);
+    assert(map.ranges[4].auxiliary == (clip_u32)0x00001d7fUL);
+    assert(map.ranges[4].length == (clip_u32)0x00000ba4UL);
+
     assert(map.trailer_len == 0U);
 }
 
