@@ -184,7 +184,7 @@ ECH/ECHO readback support is validated against the supplied raw Proprietary-A tr
 
 Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
 
-See [docs/upload-validation.md](docs/upload-validation.md) for validation details.
+See [docs/upload-validation.md](docs/upload-validation.md) for upload validation details and [docs/memory-descriptor-validation.md](docs/memory-descriptor-validation.md) for the measured CLIP memory-descriptor layout and INCAL corpus results.
 
 ## Releases
 
