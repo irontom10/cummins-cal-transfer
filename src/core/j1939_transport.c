@@ -22,7 +22,6 @@
 #define J1939_RP1210_RX_OVERHEAD             32U
 
 #define RP1210_CMD_SET_J1939_FILTER            4
-#define RP1210_CMD_ECHO_TRANSMITTED_MESSAGES  16
 #define RP1210_CMD_SET_ALL_FILTERS_DISCARD    17
 #define RP1210_CMD_PROTECT_J1939_ADDRESS      19
 #define RP1210_CMD_SET_J1939_FILTER_TYPE      25
@@ -229,27 +228,10 @@ command_or_connect_error(struct j1939_transport *transport,
 static int
 configure_j1939(struct j1939_transport *transport)
 {
-    unsigned char echo_mode;
     unsigned char filter_type;
     unsigned char filter[7];
     unsigned char claim[10];
     int rc;
-
-    /*
-     * The J1939 receive parser below uses the RP1210 echo-off layout:
-     * timestamp[4], PGN[3], priority, source, destination, payload.
-     * Echo mode inserts one byte after the timestamp, so force it off rather
-     * than depending on a vendor default.
-     */
-    echo_mode = 0x00U;
-    rc = command_or_connect_error(
-        transport,
-        RP1210_CMD_ECHO_TRANSMITTED_MESSAGES,
-        &echo_mode,
-        1U,
-        "RP1210 Echo_Transmitted_Messages (off)");
-    if (rc != J1939_TRANSPORT_OK)
-        return rc;
 
     rc = command_or_connect_error(
         transport,
@@ -470,18 +452,73 @@ j1939_transport_receive(struct j1939_transport *transport,
         if (rc != RP1210_TRANSPORT_OK)
             return map_rp1210_result(transport, rc);
 
-        if (message_len >= 10U) {
-            pgn = (unsigned long)buffer[4] |
-                  ((unsigned long)buffer[5] << 8) |
-                  ((unsigned long)buffer[6] << 16);
-            source_address = buffer[8];
-            destination_address = buffer[9];
+        /*
+         * RP1210 J1939 receive framing is vendor-dependent when transmitted
+         * message echoing is enabled.  The normal form is:
+         *
+         *   timestamp[4], PGN[3], priority, source, destination, payload
+         *
+         * Some implementations (notably the NEXIQ mobile runtime) expose the
+         * echo-status byte in the receive header instead:
+         *
+         *   timestamp[4], echo, PGN[3], priority, source, destination, payload
+         *
+         * Do not change the vendor's echo mode just to make the parser fit.
+         * Match the frame structurally and accept either legal header.
+         */
+        {
+            size_t header_len;
+            size_t pgn_off;
+            size_t source_off;
+            size_t destination_off;
 
-            if (pgn == transport->pgn &&
-                source_address == transport->destination_address &&
-                (destination_address == transport->source_address ||
-                 destination_address == 0xffU)) {
-                n_payload = message_len - 10U;
+            header_len = 0U;
+            pgn_off = 0U;
+            source_off = 0U;
+            destination_off = 0U;
+
+            if (message_len >= 10U) {
+                pgn = (unsigned long)buffer[4] |
+                      ((unsigned long)buffer[5] << 8) |
+                      ((unsigned long)buffer[6] << 16);
+                source_address = buffer[8];
+                destination_address = buffer[9];
+
+                if (pgn == transport->pgn &&
+                    source_address == transport->destination_address &&
+                    (destination_address == transport->source_address ||
+                     destination_address == 0xffU)) {
+                    header_len = 10U;
+                    pgn_off = 4U;
+                    source_off = 8U;
+                    destination_off = 9U;
+                }
+            }
+
+            if (header_len == 0U && message_len >= 11U) {
+                pgn = (unsigned long)buffer[5] |
+                      ((unsigned long)buffer[6] << 8) |
+                      ((unsigned long)buffer[7] << 16);
+                source_address = buffer[9];
+                destination_address = buffer[10];
+
+                if (pgn == transport->pgn &&
+                    source_address == transport->destination_address &&
+                    (destination_address == transport->source_address ||
+                     destination_address == 0xffU)) {
+                    header_len = 11U;
+                    pgn_off = 5U;
+                    source_off = 9U;
+                    destination_off = 10U;
+                }
+            }
+
+            (void)pgn_off;
+            (void)source_off;
+            (void)destination_off;
+
+            if (header_len != 0U) {
+                n_payload = message_len - header_len;
                 if (n_payload > payload_capacity) {
                     set_error_text(
                         transport,
@@ -489,7 +526,7 @@ j1939_transport_receive(struct j1939_transport *transport,
                     return J1939_TRANSPORT_ERR_PROTOCOL;
                 }
 
-                memcpy(payload, buffer + 10U, n_payload);
+                memcpy(payload, buffer + header_len, n_payload);
                 *payload_len = n_payload;
                 return J1939_TRANSPORT_OK;
             }
