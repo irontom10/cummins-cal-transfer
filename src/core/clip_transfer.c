@@ -1651,7 +1651,31 @@ cal_get_descriptor(struct pull_ctx *ctx,
                                           seq,
                                           map);
     if (rc != CLIP_CAL_OK) {
-        set_last_error_code("Invalid calibration memory descriptor", (long)rc);
+        char msg[512];
+        char byte_text[8];
+        size_t i;
+        size_t used;
+
+        sprintf(msg,
+                "Invalid calibration memory descriptor: %s (code %ld); "
+                "reply_len=%lu seq=%02X raw=",
+                clip_cal_strerror(rc),
+                (long)rc,
+                (unsigned long)reply_len,
+                (unsigned int)seq);
+        used = strlen(msg);
+
+        for (i = 0U; i < reply_len; ++i) {
+            sprintf(byte_text, "%s%02X",
+                    (i == 0U) ? "" : " ",
+                    (unsigned int)reply[i]);
+            if (used + strlen(byte_text) + 1U >= sizeof(msg))
+                break;
+            strcat(msg, byte_text);
+            used += strlen(byte_text);
+        }
+
+        set_last_error_text(msg);
         return PULL_ERR_CAL;
     }
 
