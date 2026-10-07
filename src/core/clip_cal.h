@@ -83,9 +83,12 @@ struct clip_cal_range {
     clip_u32 length;
 
     /*
-     * A parallel per-range 32-bit field exists in the descriptor between the
-     * address and length arrays.  Its semantic meaning is not asserted yet,
-     * so preserve it verbatim.
+     * A parallel per-range field exists in the descriptor between the address
+     * and length arrays.  Its semantic meaning is intentionally not asserted.
+     *
+     * Corpus validation found 264 exact region matches where auxiliary < length,
+     * so this value must not be treated as a capacity/max-length field or used
+     * to reject an otherwise valid descriptor.  Preserve it verbatim.
      */
     clip_u32 auxiliary;
 };
