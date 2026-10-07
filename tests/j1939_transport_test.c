@@ -182,7 +182,7 @@ test_auto_baud_is_explicit(void)
 }
 
 static void
-test_echo_off_and_framing(void)
+test_j1939_framing(void)
 {
     struct j1939_transport *transport;
     unsigned char payload[8];
@@ -197,11 +197,6 @@ test_echo_off_and_framing(void)
     assert(j1939_transport_open(
                transport, "FAKE", 1, 250000, 0x00ef00UL,
                6U, 0xfaU, 0x00U) == J1939_TRANSPORT_OK);
-
-    assert(g_command_count >= 1);
-    assert(g_commands[0] == 16);
-    assert(g_command_len[0] == 1U);
-    assert(g_command_data[0] == 0x00U);
 
     assert(j1939_transport_send(
                transport, tx_payload, sizeof(tx_payload)) ==
@@ -237,6 +232,33 @@ test_echo_off_and_framing(void)
     assert(payload_len == 2U);
     assert(payload[0] == 0x12U);
     assert(payload[1] == 0x34U);
+
+    /*
+     * NEXIQ mobile can return the RP1210 echo-status header byte even though
+     * ordinary ECM receive traffic is not itself a transmit echo.
+     */
+    g_next_rx[0] = 0x00U;
+    g_next_rx[1] = 0x00U;
+    g_next_rx[2] = 0x00U;
+    g_next_rx[3] = 0x02U;
+    g_next_rx[4] = 0x00U; /* echo status */
+    g_next_rx[5] = 0x00U;
+    g_next_rx[6] = 0xefU;
+    g_next_rx[7] = 0x00U;
+    g_next_rx[8] = 6U;
+    g_next_rx[9] = 0x00U;
+    g_next_rx[10] = 0xfaU;
+    g_next_rx[11] = 0x56U;
+    g_next_rx[12] = 0x78U;
+    g_next_rx_len = 13U;
+
+    payload_len = 0U;
+    assert(j1939_transport_receive(
+               transport, payload, sizeof(payload), &payload_len, 100UL) ==
+           J1939_TRANSPORT_OK);
+    assert(payload_len == 2U);
+    assert(payload[0] == 0x56U);
+    assert(payload[1] == 0x78U);
 
     j1939_transport_destroy(transport);
 }
