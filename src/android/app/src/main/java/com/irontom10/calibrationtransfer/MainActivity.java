@@ -973,7 +973,7 @@ public final class MainActivity extends Activity {
         Log.i(LOG_TAG,
                 "Build info: version=" + versionName +
                 " versionCode=" + versionCode +
-                " buildType=" + BuildConfig.BUILD_TYPE +
+                " buildType=" + (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) +
                 " sdk=" + Build.VERSION.SDK_INT +
                 " device=" + Build.MANUFACTURER + " " + Build.MODEL +
                 " abi=" + Build.SUPPORTED_ABIS[0]);
