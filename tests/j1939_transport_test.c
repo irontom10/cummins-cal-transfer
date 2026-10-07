@@ -268,7 +268,7 @@ main(void)
 {
     test_fixed_baud_never_falls_back();
     test_auto_baud_is_explicit();
-    test_echo_off_and_framing();
+    test_j1939_framing();
 
     puts("j1939 transport tests passed");
     return 0;
