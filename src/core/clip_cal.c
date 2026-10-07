@@ -36,6 +36,18 @@ clip_cal_load_be16(const clip_u8 *p)
     return v;
 }
 
+static clip_u32
+clip_cal_load_be_width(const clip_u8 *p, unsigned int width)
+{
+    clip_u32 v;
+    unsigned int i;
+
+    v = (clip_u32)0;
+    for (i = 0U; i < width; ++i)
+        v = (v << 8) | (clip_u32)p[i];
+    return v;
+}
+
 static void
 clip_cal_store_be32(clip_u8 *p, clip_u32 v)
 {
@@ -132,16 +144,13 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 {
     const clip_u8 *data;
     size_t data_len;
-    size_t starts_off;
-    size_t aux_off;
-    size_t length_count_off;
-    size_t lengths_off;
-    size_t required;
+    size_t offset;
+    size_t bytes;
     size_t trailer_len;
-    unsigned int count_a;
-    unsigned int count_b;
-    clip_u32 length_count32;
     unsigned int count;
+    unsigned int address_width;
+    unsigned int auxiliary_width;
+    unsigned int length_width;
     unsigned int i;
     int rc;
 
@@ -156,45 +165,88 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
     if (rc != CLIP_CAL_OK)
         return rc;
 
-    if (data_len < 12U)
+    /*
+     * Observed width-tagged descriptor layout:
+     *
+     *   u32 descriptor_value
+     *   u16 range_count
+     *   u16 address_width
+     *   address[range_count][address_width]
+     *   u16 auxiliary_width
+     *   auxiliary[range_count][auxiliary_width]
+     *   u16 length_width
+     *   length[range_count][length_width]
+     *   optional trailer
+     *
+     * The earlier CM2350A recording happened to contain 0x0004 for both the
+     * range count and element widths.  Treating those equal values as duplicate
+     * counts was incorrect and rejected valid descriptors such as a five-range,
+     * four-byte-width map.
+     */
+    if (data_len < 8U)
         return CLIP_CAL_ERR_FORMAT;
+
+    memset(map, 0, sizeof(*map));
 
     map->descriptor_value = clip_cal_load_be32(data);
-    count_a = clip_cal_load_be16(data + 4U);
-    count_b = clip_cal_load_be16(data + 6U);
+    count = clip_cal_load_be16(data + 4U);
+    address_width = clip_cal_load_be16(data + 6U);
 
-    if (count_a != count_b)
-        return CLIP_CAL_ERR_FORMAT;
-
-    count = count_b;
     if (count == 0U || count > CLIP_CAL_MAX_RANGES)
         return CLIP_CAL_ERR_RANGE_COUNT;
-
-    /*
-     * descriptor header + address[count] + auxiliary[count] + u32 count
-     * + length[count]
-     */
-    starts_off = 8U;
-    aux_off = starts_off + ((size_t)count * 4U);
-    length_count_off = aux_off + ((size_t)count * 4U);
-    lengths_off = length_count_off + 4U;
-    required = lengths_off + ((size_t)count * 4U);
-
-    if (data_len < required)
+    if (address_width == 0U || address_width > 4U)
         return CLIP_CAL_ERR_FORMAT;
 
-    length_count32 = clip_cal_load_be32(data + length_count_off);
-    if (length_count32 != (clip_u32)count)
+    offset = 8U;
+    bytes = (size_t)count * (size_t)address_width;
+    if (bytes > data_len - offset)
         return CLIP_CAL_ERR_FORMAT;
 
-    memset(map->ranges, 0, sizeof(map->ranges));
     for (i = 0U; i < count; ++i) {
         map->ranges[i].address =
-            clip_cal_load_be32(data + starts_off + ((size_t)i * 4U));
+            clip_cal_load_be_width(data + offset +
+                                   ((size_t)i * address_width),
+                                   address_width);
+    }
+    offset += bytes;
+
+    if (data_len - offset < 2U)
+        return CLIP_CAL_ERR_FORMAT;
+    auxiliary_width = clip_cal_load_be16(data + offset);
+    offset += 2U;
+
+    if (auxiliary_width == 0U || auxiliary_width > 4U)
+        return CLIP_CAL_ERR_FORMAT;
+
+    bytes = (size_t)count * (size_t)auxiliary_width;
+    if (bytes > data_len - offset)
+        return CLIP_CAL_ERR_FORMAT;
+
+    for (i = 0U; i < count; ++i) {
         map->ranges[i].auxiliary =
-            clip_cal_load_be32(data + aux_off + ((size_t)i * 4U));
+            clip_cal_load_be_width(data + offset +
+                                   ((size_t)i * auxiliary_width),
+                                   auxiliary_width);
+    }
+    offset += bytes;
+
+    if (data_len - offset < 2U)
+        return CLIP_CAL_ERR_FORMAT;
+    length_width = clip_cal_load_be16(data + offset);
+    offset += 2U;
+
+    if (length_width == 0U || length_width > 4U)
+        return CLIP_CAL_ERR_FORMAT;
+
+    bytes = (size_t)count * (size_t)length_width;
+    if (bytes > data_len - offset)
+        return CLIP_CAL_ERR_FORMAT;
+
+    for (i = 0U; i < count; ++i) {
         map->ranges[i].length =
-            clip_cal_load_be32(data + lengths_off + ((size_t)i * 4U));
+            clip_cal_load_be_width(data + offset +
+                                   ((size_t)i * length_width),
+                                   length_width);
 
         if (map->ranges[i].length == (clip_u32)0)
             return CLIP_CAL_ERR_FORMAT;
@@ -203,16 +255,17 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
             (clip_u32)0xffffffffUL - map->ranges[i].length)
             return CLIP_CAL_ERR_LENGTH;
     }
+    offset += bytes;
 
     map->range_count = count;
 
-    trailer_len = data_len - required;
+    trailer_len = data_len - offset;
     if (trailer_len > CLIP_CAL_MAX_TRAILER)
         return CLIP_CAL_ERR_BUFFER;
 
     map->trailer_len = trailer_len;
     if (trailer_len != 0U)
-        memcpy(map->trailer, data + required, trailer_len);
+        memcpy(map->trailer, data + offset, trailer_len);
     if (trailer_len < CLIP_CAL_MAX_TRAILER)
         memset(map->trailer + trailer_len,
                0,
