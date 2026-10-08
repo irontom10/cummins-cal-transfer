@@ -306,9 +306,11 @@ public final class MainActivity extends Activity {
         scanButton = button("Scan Bluetooth");
         pairButton = button("Pair");
 
-        btButtons.addView(refreshButton, weighted());
-        btButtons.addView(scanButton, weighted());
-        btButtons.addView(pairButton, weighted());
+        // On phones, three equal columns make the Bluetooth labels wrap
+        // unevenly. Use full-width buttons until there is space for all three.
+        addActionButtons(btButtons,
+                new Button[] { refreshButton, scanButton, pairButton },
+                175);
         root.addView(btButtons, fullWidth());
 
         macEdit = new EditText(this);
@@ -346,8 +348,11 @@ public final class MainActivity extends Activity {
         pullButton = button("Pull ECM CAL");
         uploadButton = button("Upload CCAL");
 
-        transferButtons.addView(pullButton, weighted());
-        transferButtons.addView(uploadButton, weighted());
+        // The shorter transfer controls can share a row on normal phones,
+        // but must also adapt to narrow screens and larger system fonts.
+        addActionButtons(transferButtons,
+                new Button[] { pullButton, uploadButton },
+                155);
         root.addView(transferButtons, fullWidth());
 
         progressBar = new ProgressBar(
@@ -523,6 +528,29 @@ public final class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(text);
         return button;
+    }
+
+    private void addActionButtons(
+            LinearLayout row, Button[] buttons, int minButtonWidthDp) {
+        float fontScale = Math.max(
+                1.0f, getResources().getConfiguration().fontScale);
+        int availableWidthDp =
+                getResources().getConfiguration().screenWidthDp - 20;
+        boolean horizontal = availableWidthDp >=
+                buttons.length * minButtonWidthDp * fontScale;
+
+        row.setOrientation(horizontal ?
+                LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+
+        for (Button button : buttons) {
+            button.setMinHeight(dp(48));
+            button.setGravity(Gravity.CENTER);
+
+            LinearLayout.LayoutParams params =
+                    horizontal ? weighted() : fullWidth();
+            params.setMargins(dp(2), dp(2), dp(2), dp(2));
+            row.addView(button, params);
+        }
     }
 
     private EditText hexByteEdit(String value) {
