@@ -1,8 +1,12 @@
 # Calibration Transfer
 
-Open-source calibration-transfer tooling for Cummins ECMs over J1939/RP1210.
+## About
 
-The repository is now organized around one platform-independent C89 protocol core with platform front ends around it. The existing Windows x86 build remains fully supported through the .NET 10 WinForms front end and Win32 RP1210 backend. Android development lives beside it under `src/android/` and is intended to compile the same C89 calibration/J1939 core rather than reimplementing the protocol stack.
+**Calibration Transfer** is an independent, open-source Cummins ECM calibration transfer utility for Windows and Android. Built around a shared **ISO C89** protocol core, it reads calibration data from supported ECMs into `.ccal` files and provides validated upload support for compatible controllers over **J1939/RP1210**.
+
+The goal is straightforward: portable, inspectable calibration tooling without duplicating the protocol stack for every operating system. Windows uses a .NET 10 WinForms front end and a Win32 RP1210 backend; Android uses the same native calibration/J1939 core through its own front end and transport adapter.
+
+**Status:** Active development. Readback support spans multiple protocol families, but programming support is intentionally narrower. A valid `.ccal` file is not, by itself, proof that it is compatible with a particular ECM. Treat calibration uploads as potentially destructive and follow the [programming caution](#programming-caution).
 
 ## Features
 
