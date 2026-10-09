@@ -95,6 +95,24 @@ clip_parse_seed_reply(const clip_u8 *pdu, size_t pdu_len,
     return CLIP_OK;
 }
 
+int
+clip_parse_secure_seed_reply(const clip_u8 *pdu,
+                             size_t pdu_len,
+                             struct clip_secure_seed_reply *reply)
+{
+    if (pdu == NULL || reply == NULL)
+        return CLIP_ERR_ARGUMENT;
+
+    if (pdu_len != CLIP_SECURE_SEED_PDU_SIZE ||
+        pdu[0] != 0x02U || pdu[1] != 0x02U)
+        return CLIP_ERR_FORMAT;
+
+    reply->descriptor[0] = pdu[2];
+    reply->descriptor[1] = pdu[3];
+    memcpy(reply->challenge, pdu + 4U, CLIP_SECURE_CHALLENGE_SIZE);
+    return CLIP_OK;
+}
+
 /*
  * Serialized tool context, exactly 0x33 bytes:
  *
