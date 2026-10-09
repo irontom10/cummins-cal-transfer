@@ -49,6 +49,7 @@
 #define PULL_ERR_UPLOAD                 -112
 #define PULL_ERR_LEGACY_TX_BLOCKED      -113
 #define PULL_ERR_POST_VERIFY            -114
+#define PULL_ERR_SECURE_AUTH            -115
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
@@ -575,6 +576,40 @@ clip_exchange(struct pull_ctx *ctx,
             continue;
 
         n_app = incoming_len - 5U;
+
+        /*
+         * The secure handshake observed on CM2450E starts with the same
+         * 01 01 request as legacy CLIP, but returns a 02 02 application PDU
+         * containing a 16-byte challenge.  The existing exchange filter
+         * expected 01 02, silently discarded the valid reply, and reported
+         * a misleading timeout while requesting the seed.
+         *
+         * Detect it only during seed negotiation.  Legacy level-2 TEA
+         * (01 02) and this 02-family challenge must never be conflated.
+         * The 02 03 / 02 04 authenticated exchange is NOT implemented;
+         * do not send legacy credentials or calibration writes on this path.
+         */
+        if (expected0 == 0x01U && check_expected1 &&
+            expected1 == CLIP_OPCODE_SEED &&
+            n_app >= 2U &&
+            incoming[5] == 0x02U && incoming[6] == 0x02U) {
+            struct clip_secure_seed_reply secure_seed;
+
+            if (clip_parse_secure_seed_reply(incoming + 5U, n_app,
+                                             &secure_seed) != CLIP_OK) {
+                set_last_error_text(
+                    "Secure CLIP 02 02 seed reply has an unexpected length or format.");
+                return PULL_ERR_PROTOCOL;
+            }
+
+            set_last_error_text(
+                "Secure CLIP (CM2450E-style) detected: 02 02 seed with a "
+                "16-byte challenge. This ECM requires a distinct 02 03 / "
+                "02 04 authentication exchange, not the legacy CLIP TEA "
+                "context. Secure authentication and calibration transfer "
+                "are not implemented; no programming was attempted.");
+            return PULL_ERR_SECURE_AUTH;
+        }
 
         /*
          * 01 05 is a session-refusal opcode only during the CLIP handshake.
