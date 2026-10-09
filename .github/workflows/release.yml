@@ -207,6 +207,20 @@ jobs:
           mkdir -p builds/latest
           cp release-assets/* builds/latest/
 
+          # The Windows self-contained executable can exceed GitHub's
+          # 100 MiB git-blob limit. Keep the full EXE as a release asset,
+          # but publish its ZIP and checksum in the tracked latest directory.
+          windows_exe="builds/latest/CalibrationTransfer-$RELEASE_TAG-win-x86.exe"
+          if [ -f "$windows_exe" ]; then
+            (
+              cd builds/latest
+              zip -9 "CalibrationTransfer-$RELEASE_TAG-win-x86.zip" "CalibrationTransfer-$RELEASE_TAG-win-x86.exe"
+              sha256sum "CalibrationTransfer-$RELEASE_TAG-win-x86.zip" \
+                > "CalibrationTransfer-$RELEASE_TAG-win-x86.zip.sha256"
+            )
+            rm "$windows_exe" "$windows_exe.sha256"
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f builds/latest
@@ -232,14 +246,27 @@ jobs:
             prerelease_arg=""
           fi
 
+          notes_file="docs/releases/$RELEASE_TAG.md"
+          notes_args=(--generate-notes)
+          if [ -f "$notes_file" ]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release-assets/* \
               --clobber \
               --repo "$GITHUB_REPOSITORY"
+            if [ -f "$notes_file" ]; then
+              gh release edit "$RELEASE_TAG" \
+                --notes-file "$notes_file" \
+                --title "$title" \
+                $prerelease_arg \
+                --repo "$GITHUB_REPOSITORY"
+            fi
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
-              --generate-notes \
+              "${notes_args[@]}" \
               --title "$title" \
               $prerelease_arg \
               --repo "$GITHUB_REPOSITORY"
