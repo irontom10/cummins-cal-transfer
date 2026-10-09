@@ -102,3 +102,31 @@ as the supplied ECH/ECHO `.ccal` data records.
 The trace does **not** contain an ECH/ECHO programming/write sequence. ECH/ECHO
 programming is therefore intentionally blocked; the implementation adds
 readback only.
+
+## Three-region CLIP calibrations (CM2250)
+
+The existing known-good programming trace contains a short metadata region at
+`0x00A00000`, sent with loader opcode `0x4B`, plus one or more bulk `0x4D`
+regions. That special region is **not universal**: three-range CLIP descriptors
+are common in the offline calibration corpus, and the live CM2250 readback
+produces flash regions at `0x00001080`, `0x00004100`, and `0x00040000`
+without a `0x00A00000` region.
+
+The uploader now has a separate **three-region, metadata-free** layout path:
+it validates each region's 24-bit address and length bounds and emits a region
+length (`0x44 00 18 04`) followed by normal `0x4D` bulk writes with the
+existing CRC-16/KERMIT suffix. It does **not** fabricate `0x00A00000` data or
+send a `0x4B` when that range is absent. The existing short-region send order
+is unchanged for files that contain it.
+
+Preflight still runs before RP1210 setup. A CRC-correct file without the special
+region must have **exactly three** ordered, nonempty, 24-bit-addressable ranges;
+other unsupported or incomplete layouts still fail before any programming
+traffic. The mock callback tests validate the two send patterns, including
+zero transmitted frames for a rejected incomplete CCAL.
+
+**Live programming boundary:** these changes are validated structurally and in
+mocked protocol tests, not against a captured three-region CM2250 programming
+trace. Live ECM use requires a known-good three-region trace comparison and
+recovery plan. Passing preflight is not proof that a particular ECM's loader
+accepts the same sequence.

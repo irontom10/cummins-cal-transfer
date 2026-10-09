@@ -855,8 +855,22 @@ static int clip_cal_validate_image(const clip_cal_image *image,
         total += region->length + 2UL;
     }
 
-    if (found_special == 0U) {
+    /*
+     * The reference upload trace contains a 0x00A00000 short metadata range,
+     * but valid CLIP readback descriptors also contain three flash ranges
+     * without that range.  Never synthesize missing metadata: those three
+     * ranges use the normal 24-bit bulk-write path instead.
+     *
+     * Keep the metadata-free case narrow until other loader layouts have
+     * been validated independently.  An arbitrary one/two/four/five-range
+     * truncated CCAL must not become programmable just by fixing its CRC.
+     */
+    if (found_special == 0U && image->count != 3U) {
         return CLIP_CAL_ERR_LAYOUT;
+    }
+
+    if (found_special == 0U && special_index != NULL) {
+        *special_index = image->count;
     }
 
     if (total_out != NULL) {
@@ -1241,7 +1255,6 @@ int clip_cal_send_ccal(const char *filename,
     clip_cal_image image;
     clip_cal_options local_options;
     const clip_cal_options *opt;
-    clip_cal_region *special;
     unsigned int special_index;
     unsigned int i;
     unsigned long total;
@@ -1290,7 +1303,6 @@ int clip_cal_send_ccal(const char *filename,
         return rc;
     }
 
-    special = &image.region[special_index];
     sent = 0UL;
 
     if (opt->send_start_command) {
@@ -1301,10 +1313,18 @@ int clip_cal_send_ccal(const char *filename,
         }
     }
 
-    rc = clip_cal_send_short_region(special, io, opt, &sent, total);
-    if (rc != CLIP_CAL_OK) {
-        clip_cal_image_free(&image);
-        return rc;
+    /*
+     * In the captured four-range sequence the high-address metadata is sent
+     * first via 0x4B.  A three-range descriptor has no such bytes, so emit no
+     * 0x4B command and transfer each validated flash region via 0x4D.
+     */
+    if (special_index < image.count) {
+        rc = clip_cal_send_short_region(
+            &image.region[special_index], io, opt, &sent, total);
+        if (rc != CLIP_CAL_OK) {
+            clip_cal_image_free(&image);
+            return rc;
+        }
     }
 
     for (i = 0U; i < image.count; ++i) {
