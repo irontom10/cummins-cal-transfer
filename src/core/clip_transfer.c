@@ -26,6 +26,10 @@
 #define CLIP_WIRE_MAX                  4096U
 #define CLIP_APP_MAX                   4096U
 #define CLIP_TIMEOUT_MS                5000UL
+/* unlock.jlog: 12 <seq> 00 18 00 = unlock, ... 01 = lock. */
+#define CLIP_MODE_CAL_LOCK              0x0018U
+#define CLIP_CAL_UNLOCKED               0x00U
+#define CLIP_CAL_LOCKED                 0x01U
 #define CLIP_READ_TIMEOUT_MS           10000UL
 #define CLIP_OPEN_TIMEOUT_MS           5000UL
 
@@ -2753,7 +2757,9 @@ write_ccal(const char *path,
  * ------------------------------------------------------------------------- */
 
 static int
-cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_prepare_programming(struct pull_ctx *ctx,
+                        clip_u8 *sequence,
+                        int *loader_requested)
 {
     int rc;
 
@@ -2784,6 +2790,12 @@ cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
 
     ct_sleep_ms(50);
 
+    /*
+     * Flag the attempt BEFORE sending: the ECM could enter the loader
+     * even if its reply is lost.  Never assume CLIP is still running.
+     */
+    if (loader_requested != NULL)
+        *loader_requested = 1;
     /* Observed programming/loader transition: 12 <seq> 00 17 00. */
     rc = cal_enter_mode_value(ctx, sequence, 0x0017U, 0x00U); /* 21 */
     if (rc != PULL_OK)
@@ -2993,7 +3005,8 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
                              int device_id,
                              int baud,
                              clip_u8 tool_sa,
-                             clip_u8 ecm_sa)
+                             clip_u8 ecm_sa,
+                             int *lock_confirmed)
 {
     RP1210_PROGRESS_CALLBACK saved_progress;
     clip_u8 sequence;
@@ -3032,17 +3045,28 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
             rc = clip_authenticate(ctx);
             if (rc == PULL_OK) {
                 sequence = 0x00U;
-                rc = cal_query_discard(ctx, &sequence, 0x002226UL);
-                if (rc == PULL_OK)
-                    rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                /*
+                 * Re-lock only after authenticated application recovery,
+                 * never while the raw programming loader is active.
+                 */
+                rc = cal_enter_mode_value(ctx, &sequence,
+                                          CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
                 if (rc == PULL_OK) {
-                    (void)clip_send_close(ctx);
-                    close_j1939_transport(ctx);
-                    ctx->progress = saved_progress;
-                    report_progress(ctx, 99,
-                                    "ECM application is back online and responding.");
-                    return PULL_OK;
+                    if (lock_confirmed != NULL)
+                        *lock_confirmed = 1;
+                    rc = cal_query_discard(ctx, &sequence, 0x002226UL);
+                    if (rc == PULL_OK)
+                        rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                    if (rc == PULL_OK) {
+                        (void)clip_send_close(ctx);
+                        close_j1939_transport(ctx);
+                        ctx->progress = saved_progress;
+                        report_progress(ctx, 99,
+                            "ECM recovered; calibration re-lock acknowledged.");
+                        return PULL_OK;
+                    }
                 }
+                (void)clip_send_close(ctx);
             }
         }
 
@@ -3052,7 +3076,7 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
 
     ctx->progress = saved_progress;
     set_last_error_text(
-        "Programming stream completed, but the ECM did not return to a verified CLIP application session.");
+        "Programming completed, but ECM recovery, calibration re-lock, and application verification could not all be confirmed.");
     return PULL_ERR_POST_VERIFY;
 }
 
