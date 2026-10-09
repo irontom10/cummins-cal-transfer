@@ -169,6 +169,16 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
                                  clip_u8 expected_sequence,
                                  struct clip_cal_map *map);
 
+/*
+ * Positive calibration lock/unlock acknowledgement captured in unlock.jlog:
+ *   01 <seq> FF FF
+ * Reject short, mismatched-sequence or unexpected payloads.
+ */
+int
+clip_cal_parse_lock_ack(const clip_u8 *pdu,
+                        size_t pdu_len,
+                        clip_u8 expected_sequence);
+
 /* Build: 13 seq address[31:0] length[15:0]. */
 int
 clip_cal_build_read_request(clip_u8 sequence,
