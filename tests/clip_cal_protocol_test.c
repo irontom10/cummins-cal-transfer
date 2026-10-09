@@ -54,6 +54,17 @@ test_calibration_lock_modes(void)
             == CLIP_CAL_OK);
         assert(data_len == 2U);
         assert(data[0] == 0xffU && data[1] == 0xffU);
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), sequences[i]) == CLIP_CAL_OK);
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), (clip_u8)(sequences[i] + 1U))
+            == CLIP_CAL_ERR_SEQUENCE);
+        reply[3] = 0x00U;
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), sequences[i]) == CLIP_CAL_ERR_FORMAT);
+        reply[3] = 0xffU;
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply) - 1U, sequences[i]) == CLIP_CAL_ERR_FORMAT);
     }
 }
 
