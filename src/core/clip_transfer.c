@@ -3049,8 +3049,10 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
                  * Re-lock only after authenticated application recovery,
                  * never while the raw programming loader is active.
                  */
-                rc = cal_enter_mode_value(ctx, &sequence,
-                                          CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
+                rc = cal_enter_0b_state(ctx, &sequence, 1);
+                if (rc == PULL_OK)
+                    rc = cal_enter_mode_value(ctx, &sequence,
+                                              CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
                 if (rc == PULL_OK) {
                     if (lock_confirmed != NULL)
                         *lock_confirmed = 1;
@@ -3075,8 +3077,12 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
     }
 
     ctx->progress = saved_progress;
-    set_last_error_text(
-        "Programming completed, but ECM recovery, calibration re-lock, and application verification could not all be confirmed.");
+    if (lock_confirmed != NULL && *lock_confirmed)
+        set_last_error_text(
+            "Calibration re-lock acknowledged, but post-programming application verification failed.");
+    else
+        set_last_error_text(
+            "Programming completed, but calibration re-lock is NOT confirmed. ECM may remain unlocked or in loader mode.");
     return PULL_ERR_POST_VERIFY;
 }
 
@@ -3115,8 +3121,10 @@ relock_after_loader_failure(struct pull_ctx *ctx,
             rc = clip_authenticate(ctx);
             if (rc == PULL_OK) {
                 sequence = 0x00U;
-                rc = cal_enter_mode_value(ctx, &sequence,
-                                          CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
+                rc = cal_enter_0b_state(ctx, &sequence, 1);
+                if (rc == PULL_OK)
+                    rc = cal_enter_mode_value(ctx, &sequence,
+                                              CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
                 (void)clip_send_close(ctx);
                 if (rc == PULL_OK) {
                     close_j1939_transport(ctx);
