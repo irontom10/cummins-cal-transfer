@@ -32,8 +32,14 @@ jobs:
             src/core/ct_platform.c \
             -o build/tests/j1939_transport_test
 
+          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
+            tests/clip_secure_seed_test.c \
+            src/core/clip_crypto.c \
+            -o build/tests/clip_secure_seed_test
+
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test
+          build/tests/clip_secure_seed_test
 
   windows-x86:
     runs-on: windows-latest
