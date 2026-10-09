@@ -303,8 +303,10 @@ int clip_cal_verify_ccal_crc(const char *filename);
 /*
  * Fully validate a CCAL for the raw-loader programming path without sending
  * any vehicle traffic.  This checks the file CRCs, Intel-HEX syntax/checksums,
- * record ordering, required 0x00A00000 metadata region, and every address/
- * length constraint used by clip_cal_send_ccal().
+ * record ordering, either the captured 0x00A00000 metadata layout or the
+ * three-flash-region CLIP layout, and the address/length constraints used by
+ * clip_cal_send_ccal().  The three-region stream has not yet been confirmed
+ * against a live programming trace.
  */
 int clip_cal_validate_ccal(const char *filename);
 
@@ -314,7 +316,7 @@ int clip_cal_validate_ccal(const char *filename);
  *
  *   02                    enter transfer phase
  *   44 00 18 04 <len32>   announce region length including CRC16
- *   4B ...                short write for 0x00A00000 metadata region
+ *   4B ...                optional short write for 0x00A00000 metadata
  *   4D ...                24-bit bulk write, <=0x0640 bytes per block
  *   44 00 0B 02 <value>   final captured parameter write
  *   07                    finish transfer phase
