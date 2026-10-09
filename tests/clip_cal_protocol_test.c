@@ -18,6 +18,56 @@ test_mode_request(void)
     assert(memcmp(out, expected, sizeof(expected)) == 0);
 }
 
+/*
+ * Captured in unlock.jlog (PropA / CLIP application PDU):
+ * 12 90 00 18 00 -> 01 90 FF FF (unlock)
+ * 12 97 00 18 01 -> 01 97 FF FF (lock)
+ * 12 9E 00 18 00 -> 01 9E FF FF (unlock)
+ * The sequence is dynamic; no captured sequence bytes are replayed.
+ */
+static void
+test_calibration_lock_modes(void)
+{
+    clip_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    clip_u8 reply[4];
+    const clip_u8 *data;
+    size_t data_len;
+    unsigned int i;
+    static const clip_u8 sequences[3] = {0x90U, 0x97U, 0x9eU};
+    static const clip_u8 values[3] = {0x00U, 0x01U, 0x00U};
+
+    for (i = 0U; i < 3U; ++i) {
+        assert(clip_cal_build_mode_request(
+            sequences[i], 0x0018U, values[i], request) == CLIP_CAL_OK);
+        assert(request[0] == 0x12U);
+        assert(request[1] == sequences[i]);
+        assert(request[2] == 0x00U);
+        assert(request[3] == 0x18U);
+        assert(request[4] == values[i]);
+
+        reply[0] = 0x01U;
+        reply[1] = sequences[i];
+        reply[2] = 0xffU;
+        reply[3] = 0xffU;
+        assert(clip_cal_parse_reply(
+            reply, sizeof(reply), sequences[i], &data, &data_len)
+            == CLIP_CAL_OK);
+        assert(data_len == 2U);
+        assert(data[0] == 0xffU && data[1] == 0xffU);
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), sequences[i]) == CLIP_CAL_OK);
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), (clip_u8)(sequences[i] + 1U))
+            == CLIP_CAL_ERR_SEQUENCE);
+        reply[3] = 0x00U;
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply), sequences[i]) == CLIP_CAL_ERR_FORMAT);
+        reply[3] = 0xffU;
+        assert(clip_cal_parse_lock_ack(
+            reply, sizeof(reply) - 1U, sequences[i]) == CLIP_CAL_ERR_FORMAT);
+    }
+}
+
 static void
 test_query_request(void)
 {
@@ -444,6 +494,7 @@ int
 main(void)
 {
     test_mode_request();
+    test_calibration_lock_modes();
     test_query_request();
     test_read_request();
     test_memory_descriptor();

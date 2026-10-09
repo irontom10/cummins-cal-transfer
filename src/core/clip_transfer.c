@@ -26,6 +26,10 @@
 #define CLIP_WIRE_MAX                  4096U
 #define CLIP_APP_MAX                   4096U
 #define CLIP_TIMEOUT_MS                5000UL
+/* unlock.jlog: 12 <seq> 00 18 00 = unlock, ... 01 = lock. */
+#define CLIP_MODE_CAL_LOCK              0x0018U
+#define CLIP_CAL_UNLOCKED               0x00U
+#define CLIP_CAL_LOCKED                 0x01U
 #define CLIP_READ_TIMEOUT_MS           10000UL
 #define CLIP_OPEN_TIMEOUT_MS           5000UL
 
@@ -2753,7 +2757,9 @@ write_ccal(const char *path,
  * ------------------------------------------------------------------------- */
 
 static int
-cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_prepare_programming(struct pull_ctx *ctx,
+                        clip_u8 *sequence,
+                        int *loader_requested)
 {
     int rc;
 
@@ -2784,6 +2790,12 @@ cal_prepare_programming(struct pull_ctx *ctx, clip_u8 *sequence)
 
     ct_sleep_ms(50);
 
+    /*
+     * Flag the attempt BEFORE sending: the ECM could enter the loader
+     * even if its reply is lost.  Never assume CLIP is still running.
+     */
+    if (loader_requested != NULL)
+        *loader_requested = 1;
     /* Observed programming/loader transition: 12 <seq> 00 17 00. */
     rc = cal_enter_mode_value(ctx, sequence, 0x0017U, 0x00U); /* 21 */
     if (rc != PULL_OK)
@@ -2993,7 +3005,8 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
                              int device_id,
                              int baud,
                              clip_u8 tool_sa,
-                             clip_u8 ecm_sa)
+                             clip_u8 ecm_sa,
+                             int *lock_confirmed)
 {
     RP1210_PROGRESS_CALLBACK saved_progress;
     clip_u8 sequence;
@@ -3032,17 +3045,30 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
             rc = clip_authenticate(ctx);
             if (rc == PULL_OK) {
                 sequence = 0x00U;
-                rc = cal_query_discard(ctx, &sequence, 0x002226UL);
+                /*
+                 * Re-lock only after authenticated application recovery,
+                 * never while the raw programming loader is active.
+                 */
+                rc = cal_enter_0b_state(ctx, &sequence, 1);
                 if (rc == PULL_OK)
-                    rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                    rc = cal_enter_mode_value(ctx, &sequence,
+                                              CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
                 if (rc == PULL_OK) {
-                    (void)clip_send_close(ctx);
-                    close_j1939_transport(ctx);
-                    ctx->progress = saved_progress;
-                    report_progress(ctx, 99,
-                                    "ECM application is back online and responding.");
-                    return PULL_OK;
+                    if (lock_confirmed != NULL)
+                        *lock_confirmed = 1;
+                    rc = cal_query_discard(ctx, &sequence, 0x002226UL);
+                    if (rc == PULL_OK)
+                        rc = cal_query_discard(ctx, &sequence, 0x000084UL);
+                    if (rc == PULL_OK) {
+                        (void)clip_send_close(ctx);
+                        close_j1939_transport(ctx);
+                        ctx->progress = saved_progress;
+                        report_progress(ctx, 99,
+                            "ECM recovered; calibration re-lock acknowledged.");
+                        return PULL_OK;
+                    }
                 }
+                (void)clip_send_close(ctx);
             }
         }
 
@@ -3051,9 +3077,68 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
     }
 
     ctx->progress = saved_progress;
-    set_last_error_text(
-        "Programming stream completed, but the ECM did not return to a verified CLIP application session.");
+    if (lock_confirmed != NULL && *lock_confirmed)
+        set_last_error_text(
+            "Calibration re-lock acknowledged, but post-programming application verification failed.");
+    else
+        set_last_error_text(
+            "Programming completed, but calibration re-lock is NOT confirmed. ECM may remain unlocked or in loader mode.");
     return PULL_ERR_POST_VERIFY;
+}
+
+/*
+ * A failed loader transition or incomplete flash may leave no active CLIP
+ * session.  Re-lock only if the recovered APPLICATION authenticates.
+ * This cannot guarantee re-lock if the ECM remains in loader mode.
+ */
+static int
+relock_after_loader_failure(struct pull_ctx *ctx,
+                            const char *api_name,
+                            int device_id,
+                            int baud,
+                            clip_u8 tool_sa,
+                            clip_u8 ecm_sa)
+{
+    RP1210_PROGRESS_CALLBACK saved_progress;
+    clip_u8 sequence;
+    int attempt;
+    int rc;
+
+    saved_progress = ctx->progress;
+    ctx->progress = NULL;
+    close_j1939_transport(ctx);
+
+    for (attempt = 0; attempt < 3; ++attempt) {
+        if (attempt != 0)
+            ct_sleep_ms(3000UL);
+
+        ctx->session_id = 0x01U;
+        ctx->wire_slot = 0U;
+        ctx->tolerate_negative = 0;
+        rc = open_j1939_transport(ctx, api_name, device_id, baud,
+                                  tool_sa, ecm_sa);
+        if (rc == PULL_OK) {
+            rc = clip_authenticate(ctx);
+            if (rc == PULL_OK) {
+                sequence = 0x00U;
+                rc = cal_enter_0b_state(ctx, &sequence, 1);
+                if (rc == PULL_OK)
+                    rc = cal_enter_mode_value(ctx, &sequence,
+                                              CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED);
+                (void)clip_send_close(ctx);
+                if (rc == PULL_OK) {
+                    close_j1939_transport(ctx);
+                    ctx->progress = saved_progress;
+                    return 1;
+                }
+            }
+        }
+        close_j1939_transport(ctx);
+        clear_last_error();
+    }
+
+    ctx->progress = saved_progress;
+    return 0;
 }
 
 int RP1210_CALL
@@ -3279,6 +3364,9 @@ rp1210_upload_ccal(const char *api_name,
     int echo_detected;
     int clip_open;
     int loader_mode;
+    int loader_requested;
+    int unlock_attempted;
+    int lock_confirmed;
 
     memset(&ctx, 0, sizeof(ctx));
     clear_last_error();
@@ -3322,6 +3410,9 @@ rp1210_upload_ccal(const char *api_name,
     ctx.progress = progress;
     clip_open = 0;
     loader_mode = 0;
+    loader_requested = 0;
+    unlock_attempted = 0;
+    lock_confirmed = 0;
 
     report_progress(&ctx, 2, "CCAL fully validated. Opening RP1210/J1939 transport...");
     rc = open_j1939_transport(&ctx,
@@ -3384,8 +3475,22 @@ rp1210_upload_ccal(const char *api_name,
         goto done;
     }
 
-    report_progress(&ctx, 18, "Transitioning ECM into calibration loader...");
-    rc = cal_prepare_programming(&ctx, &sequence);
+    /*
+     * Unlock only after file and authenticated CLIP preflight.  Mark the
+     * attempt before sending: the acknowledgement could be lost.
+     */
+    report_progress(&ctx, 17, "Unlocking ECM calibration access...");
+    unlock_attempted = 1;
+    rc = cal_enter_mode_value(&ctx, &sequence,
+                              CLIP_MODE_CAL_LOCK, CLIP_CAL_UNLOCKED);
+    if (rc != PULL_OK) {
+        set_last_error_text(
+            "Calibration unlock not acknowledged; programming not started.");
+        goto done;
+    }
+
+    report_progress(&ctx, 18, "Unlock acknowledged; entering calibration loader...");
+    rc = cal_prepare_programming(&ctx, &sequence, &loader_requested);
     if (rc != PULL_OK)
         goto done;
 
@@ -3447,16 +3552,49 @@ rp1210_upload_ccal(const char *api_name,
                                       device_id,
                                       baud,
                                       (clip_u8)tool_sa,
-                                      (clip_u8)ecm_sa);
+                                      (clip_u8)ecm_sa,
+                                      &lock_confirmed);
     if (rc != PULL_OK)
         goto done;
 
     report_progress(&ctx, 100,
-                    "Calibration upload completed and ECM recovery verified.");
+                    "Calibration programmed, ECM re-locked, recovery verified.");
     rc = PULL_OK;
 
  done:
-    if (clip_open && !loader_mode)
+    if (unlock_attempted && !lock_confirmed) {
+        char original[sizeof(g_last_error)];
+        char summary[sizeof(g_last_error)];
+        int restored;
+
+        strncpy(original, g_last_error, sizeof(original) - 1U);
+        original[sizeof(original) - 1U] = 0;
+        restored = 0;
+
+        if (loader_requested || loader_mode) {
+            report_progress(&ctx, 96,
+                "Upload interrupted; checking whether ECM can be re-locked...");
+            restored = relock_after_loader_failure(
+                &ctx, api_name, device_id, baud,
+                (clip_u8)tool_sa, (clip_u8)ecm_sa);
+        } else if (clip_open) {
+            report_progress(&ctx, 96,
+                "Upload aborted before loader; restoring calibration lock...");
+            restored = cal_enter_mode_value(
+                &ctx, &sequence, CLIP_MODE_CAL_LOCK, CLIP_CAL_LOCKED)
+                == PULL_OK;
+        }
+
+        if (restored)
+            sprintf(summary, "%.345s Calibration re-lock acknowledged.", original);
+        else
+            sprintf(summary,
+                "%.300s WARNING: re-lock NOT confirmed; ECM may remain unlocked.",
+                original);
+        set_last_error_text(summary);
+    }
+
+    if (clip_open && !loader_requested && !loader_mode)
         (void)clip_send_close(&ctx);
     close_j1939_transport(&ctx);
     return rc;

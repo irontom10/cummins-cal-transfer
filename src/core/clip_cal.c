@@ -136,6 +136,29 @@ clip_cal_parse_reply(const clip_u8 *pdu,
     return CLIP_CAL_OK;
 }
 
+/*
+ * The captured calibration access-mode acknowledgements all carry
+ * 01 <sequence> FF FF.  Require the complete observed reply, not just
+ * a positive service byte, before treating a lock change as confirmed.
+ */
+int
+clip_cal_parse_lock_ack(const clip_u8 *pdu,
+                        size_t pdu_len,
+                        clip_u8 expected_sequence)
+{
+    const clip_u8 *data;
+    size_t data_len;
+    int rc;
+
+    rc = clip_cal_parse_reply(pdu, pdu_len, expected_sequence,
+                              &data, &data_len);
+    if (rc != CLIP_CAL_OK)
+        return rc;
+    if (data_len != 2U || data[0] != 0xffU || data[1] != 0xffU)
+        return CLIP_CAL_ERR_FORMAT;
+    return CLIP_CAL_OK;
+}
+
 int
 clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
                                  size_t pdu_len,

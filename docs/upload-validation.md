@@ -130,3 +130,39 @@ mocked protocol tests, not against a captured three-region CM2250 programming
 trace. Live ECM use requires a known-good three-region trace comparison and
 recovery plan. Passing preflight is not proof that a particular ECM's loader
 accepts the same sequence.
+
+## Calibration access lock lifecycle (observed CLIP mode)
+
+The 2026-10-09 `unlock.jlog` records three successful mode transactions
+between tool SA 250 and ECM SA 0 (PGN 61184, CLIP application envelope):
+
+| Action | Application request | ECM application response |
+| --- | --- | --- |
+| Unlock | `12 90 00 18 00` | `01 90 FF FF` |
+| Lock | `12 97 00 18 01` | `01 97 FF FF` |
+| Unlock | `12 9E 00 18 00` | `01 9E FF FF` |
+
+Only the mode/value bytes are invariant. Sequence bytes `90`, `97`, `9E`
+belong to the captured session and must **not** be sent as fixed constants.
+
+The upload coordinator now:
+
+1. Validates file and completes authenticated CLIP upload preflight.
+2. Sends `12 <seq> 00 18 00` to unlock; aborts before loader on missing ACK.
+3. Proceeds into the raw loader via `12 <seq> 00 17 00`.
+4. After a complete programming stream, waits for the ECM application to
+   return, authenticates a **new** CLIP session, and sends
+   `12 <seq> 00 18 01` to restore calibration lock.
+5. Requires an acknowledged re-lock **and** successful product-ID/status queries
+   before reporting completed/verified programming.
+6. On pre-loader errors after attempted unlock, tries to restore lock in the
+   original CLIP session. On loader/post-loader errors, only attempts re-lock
+   after a **new** authenticated application session becomes reachable.
+
+Re-lock is **not guaranteed** if the ECM loses power, stays in the loader, or
+becomes unresponsive. The application reports re-lock as unconfirmed rather
+than silently claiming the controller is locked.
+
+The log establishes the lock-mode request/response shapes. It does **not**
+prove successful re-lock immediately after a full flash; that remains a live
+validation boundary alongside the three-region loader sequence.
