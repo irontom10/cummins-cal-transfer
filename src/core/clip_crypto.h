@@ -43,6 +43,27 @@ struct clip_seed_reply {
     clip_u8 seed[4];
 };
 
+/*
+ * Distinct secure-handshake family observed on CM2450E.
+ * This is NOT the legacy CLIP level-2 (four-byte seed / TEA) mode.
+ * The two descriptor bytes are deliberately opaque until validated.
+ */
+#define CLIP_SECURE_SEED_PDU_SIZE       20U
+#define CLIP_SECURE_CHALLENGE_SIZE      16U
+
+struct clip_secure_seed_reply {
+    clip_u8 descriptor[2];
+    clip_u8 challenge[CLIP_SECURE_CHALLENGE_SIZE];
+};
+
+/* Parse a complete application PDU: 02 02 descriptor[2] challenge[16].
+ * This only recognizes the seed; it does not authenticate a session.
+ */
+int
+clip_parse_secure_seed_reply(const clip_u8 *pdu,
+                             size_t pdu_len,
+                             struct clip_secure_seed_reply *reply);
+
 /* Build the initial CLIP session-open request: 01 01 00 00. */
 void
 clip_build_seed_request(clip_u8 out[CLIP_SEED_REQUEST_SIZE]);
