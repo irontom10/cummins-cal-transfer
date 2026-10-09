@@ -274,6 +274,156 @@ write_ccal_fixture(const char *path, int include_loader_metadata)
     assert(ccal_set_cal_file_crc(path) != 0);
 }
 
+/*
+ * The three-range CM2250 readback layout has no 0x00A00000 short region.
+ * These are its actual region start addresses, with one-byte test payloads.
+ * Do not store production calibration data in the repository.
+ */
+static void
+write_three_region_fixture(const char *path)
+{
+    FILE *fp;
+
+    fp = fopen(path, "wb");
+    assert(fp != NULL);
+    assert(fputs("0000\n", fp) >= 0);
+    assert(fputs(":020000040000FA\n", fp) >= 0);
+    assert(fputs(":01108000343B\n", fp) >= 0);
+    assert(fputs(":014100005668\n", fp) >= 0);
+    assert(fputs(":020000040004F6\n", fp) >= 0);
+    assert(fputs(":010000007887\n", fp) >= 0);
+    assert(fputs(":00000001FF\n", fp) >= 0);
+    assert(fclose(fp) == 0);
+    assert(ccal_set_cal_file_crc(path) != 0);
+}
+
+struct upload_trace {
+    unsigned char last_request[5];
+    unsigned int count;
+    unsigned int short_writes;
+    unsigned int bulk_writes;
+    unsigned int region_lengths;
+    unsigned int finish_values;
+    unsigned int start_commands;
+    unsigned int end_commands;
+    unsigned long bulk_addresses[3];
+};
+
+static int
+trace_send(void *user, const unsigned char *data, unsigned int length)
+{
+    struct upload_trace *trace;
+    unsigned long address;
+
+    trace = (struct upload_trace *)user;
+    if (data == NULL || length < 5U)
+        return -1;
+
+    memcpy(trace->last_request, data, 5U);
+    ++trace->count;
+
+    if (data[0] == 0x02U) {
+        ++trace->start_commands;
+    } else if (data[0] == 0x07U) {
+        ++trace->end_commands;
+    } else if (data[0] == 0x44U && data[2] == 0x18U) {
+        ++trace->region_lengths;
+    } else if (data[0] == 0x44U && data[2] == 0x0BU) {
+        ++trace->finish_values;
+    } else if (data[0] == 0x4BU) {
+        ++trace->short_writes;
+    } else if (data[0] == 0x4DU) {
+        if (length < 9U)
+            return -1;
+        address = ((unsigned long)data[2] << 16) |
+                  ((unsigned long)data[3] << 8) |
+                  (unsigned long)data[4];
+        if (trace->bulk_writes < 3U)
+            trace->bulk_addresses[trace->bulk_writes] = address;
+        ++trace->bulk_writes;
+    } else {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
+trace_recv(void *user,
+           unsigned char *data,
+           unsigned int capacity,
+           unsigned int *length,
+           unsigned long timeout_ms)
+{
+    struct upload_trace *trace;
+
+    trace = (struct upload_trace *)user;
+    if (data == NULL || length == NULL || capacity < 6U ||
+        timeout_ms == 0UL)
+        return -1;
+
+    data[0] = 0x0CU;
+    memcpy(data + 1, trace->last_request, 5U);
+    *length = 6U;
+    return 0;
+}
+
+static void
+test_three_region_upload_stream(void)
+{
+    const char *three_path = "build/tests/three-region.ccal";
+    const char *legacy_path = "build/tests/short-region.ccal";
+    const char *bad_path = "build/tests/missing-region.ccal";
+    struct upload_trace trace;
+    clip_cal_io io;
+    clip_cal_options options;
+
+    io.user = &trace;
+    io.send = trace_send;
+    io.recv = trace_recv;
+    clip_cal_options_init(&options);
+    options.timeout_ms = 1000UL;
+
+    write_three_region_fixture(three_path);
+    assert(clip_cal_validate_ccal(three_path) == CLIP_CAL_OK);
+
+    memset(&trace, 0, sizeof(trace));
+    assert(clip_cal_send_ccal(three_path, &io, &options) == CLIP_CAL_OK);
+    assert(trace.start_commands == 1U);
+    assert(trace.end_commands == 1U);
+    assert(trace.region_lengths == 3U);
+    assert(trace.bulk_writes == 3U);
+    assert(trace.short_writes == 0U);
+    assert(trace.finish_values == 1U);
+    assert(trace.count == 9U);
+    assert(trace.bulk_addresses[0] == 0x00001080UL);
+    assert(trace.bulk_addresses[1] == 0x00004100UL);
+    assert(trace.bulk_addresses[2] == 0x00040000UL);
+
+    /* Preserve the already validated short-region programming sequence. */
+    write_ccal_fixture(legacy_path, 1);
+    memset(&trace, 0, sizeof(trace));
+    assert(clip_cal_send_ccal(legacy_path, &io, &options) == CLIP_CAL_OK);
+    assert(trace.start_commands == 1U);
+    assert(trace.end_commands == 1U);
+    assert(trace.region_lengths == 1U);
+    assert(trace.bulk_writes == 0U);
+    assert(trace.short_writes == 1U);
+    assert(trace.finish_values == 1U);
+    assert(trace.count == 5U);
+
+    /* A CRC-correct but incomplete one-region file still sends nothing. */
+    write_ccal_fixture(bad_path, 0);
+    memset(&trace, 0, sizeof(trace));
+    assert(clip_cal_send_ccal(bad_path, &io, &options) ==
+           CLIP_CAL_ERR_LAYOUT);
+    assert(trace.count == 0U);
+
+    remove(three_path);
+    remove(legacy_path);
+    remove(bad_path);
+}
+
 static void
 test_full_ccal_preflight(void)
 {
@@ -301,6 +451,7 @@ main(void)
     test_memory_descriptor_auxiliary_is_opaque();
     test_sequence_and_crc();
     test_full_ccal_preflight();
+    test_three_region_upload_stream();
 
     puts("clip_cal protocol tests passed");
     return 0;
