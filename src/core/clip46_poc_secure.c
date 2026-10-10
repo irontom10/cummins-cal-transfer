@@ -113,6 +113,47 @@ int clip46_poc_encrypt(const unsigned char key[16],
     clip46_poc_wipe(block,sizeof(block));
     return 0;
 }
+/*
+ * CBC + PKCS#7 for independently established application session material.
+ * This has been validated with synthetic vectors only. Actual GTIS4.6
+ * application cipher/IV/key derivation remains subject to live tracing.
+ */
+int clip46_poc_encrypt_application(const unsigned char key[16],
+                                   const unsigned char iv[16],
+                                   const unsigned char *plain,
+                                   size_t plain_len,
+                                   unsigned char *cipher,
+                                   size_t capacity,
+                                   size_t *cipher_len)
+{
+    unsigned char rk[176], prev[16], block[16];
+    size_t off, nblocks, total, i, idx, pad;
+    if (!key || !iv || !plain || !cipher || !cipher_len)
+        return -1;
+    if (plain_len > ((size_t)-1) - 16U)
+        return -1;
+    nblocks = (plain_len / 16U) + 1U;
+    total = nblocks * 16U;
+    if (capacity < total)
+        return -1;
+    pad = total - plain_len;
+    expand_key(key, rk);
+    memcpy(prev, iv, sizeof(prev));
+    for (off = 0U; off < total; off += 16U) {
+        for (i = 0U; i < 16U; ++i) {
+            idx = off + i;
+            block[i] = (unsigned char)(
+                (idx < plain_len ? plain[idx] : (unsigned char)pad) ^ prev[i]);
+        }
+        aes128_block(block, cipher + off, rk);
+        memcpy(prev, cipher + off, 16U);
+    }
+    *cipher_len = total;
+    clip46_poc_wipe(rk, sizeof(rk));
+    clip46_poc_wipe(prev, sizeof(prev));
+    clip46_poc_wipe(block, sizeof(block));
+    return 0;
+}
 int clip46_poc_build(const unsigned char challenge[16],
                      const unsigned char context51[51],
                      const unsigned char opaque32[32],
