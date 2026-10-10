@@ -19,12 +19,13 @@ handling is unaffected.
    `IV[16] || ciphertext[112]`.
 6. Sends `02 03 || body[128]` and waits for an `02 04` message.
 7. Unless separately enabled, reports the 02 04 response and **stops**.
-8. With CLIP46_POC_PULL=1 on the **read-only pull workflow only**,
-   probes status ID 0x2226 (service 0x10, seq 0), then reads calibration
-   descriptor ID 0x000001 (service 0x10, seq 1). If both return valid
-   positive replies, reads the descriptor's memory ranges with service
-   0x13 (maximum total 32 MiB). If all reads succeed, saves raw Intel HEX.
-   **Never** sends mode/unlock/loader/programming operations on this path.
+8. With `CLIP46_POC_PULL=1`, requires a separate, locally provided
+   **application-session** key and IV. It then constructs
+   `10 01 || AES-CBC-PKCS7(01 01 00 22 26)` and tests for a protected
+   `01 01` response. The first application payload is a 16-byte block.
+   It **does not** yet attempt descriptor or memory readback.
+   The actual application cipher mode, session key derivation and IV are
+   still subject to verification with a live INSITE crypto trace.
 
 A `02 04` response alone does **not** prove successful authentication.
 Its contents and subsequent ECDH/session state remain to be validated.
@@ -61,10 +62,16 @@ Record the RP1210/J1939 traffic and the UI's final error/status message.
 The first experiment may fail on the status query: we do **not**
 yet know whether the ECM requires ECDH completion before these services.
 
-If status, descriptor, and all memory reads succeed, the program saves
-`<selected .ccal output path>.secure-read.ihex`. It intentionally does
-not generate a .ccal or invent compatibility metadata/CRC. An error
-at any stage stops the experiment without reading subsequent ranges.
+The first application message is attempted only if the local configuration
+has `APP_KEY_HEX` and `APP_IV_HEX`. Without those fields, the program
+stops after `02 04` and **will not send another cleartext query**.
+It also stops upon an encrypted reply because its decrypt/key-agreement
+path is not validated yet.
+
+Use the separate native Windows `INSITEAppCryptoTrace v1.4` to determine
+the actual cipher/mode, caller, session key and IV at the first protected
+INSITE request before attempting live application requests. A captured
+application key or IV may be ephemeral and invalid in a new session.
 **Do not select upload/programming**, run on an engine in service, or use
 this during flashing.
 
@@ -74,17 +81,17 @@ config, it also refuses to send.
 
 ## Read-only PoC behavior
 
-The only ECM application services issued in the optional read experiment
-are 0x10 (parameter/status/descriptor query) and 0x13 (memory read).
-No 0x12 mode transitions, no 0x0011 read-phase changes, no
-calibration unlock, erase, or programming requests. The experimental
-upload workflow never enables readback, even if CLIP46_POC_PULL=1.
+In the current branch, the optional experiment can send only service
+`0x10` sequence `0x01`, with a protected application body supplied by
+the experimental session crypto module. It never sends `0x12` mode
+changes, unlock, loader or programming requests and never performs
+memory reads while ECDH and response validation are unresolved.
 
-A positive 0x10 status reply is evidence that this one read operation
-was accepted, not proof of complete secure session authentication. If
-this ECM requires further setup before memory access, the trial will
-stop. To test it, explicitly set CLIP46_POC_PULL=1. Otherwise
-previous behavior (stop at 02 04) remains unchanged.
+A `02 04` response is **not** proof that application encryption works.
+The app-encryption primitive is C89-tested with synthetic CBC vectors,
+but actual GTIS4.6 cipher mode, IV policy and per-session key derivation
+are not confirmed. The reusable authentication AES key MUST NOT be reused
+as the application key by assumption.
 
 ## Manual config specification
 
@@ -92,9 +99,11 @@ previous behavior (stop at 02 04) remains unchanged.
 KEY_HEX=<32 hexadecimal digits>
 CONTEXT_HEX=<102 hexadecimal digits>
 OPAQUE32_HEX=<64 hexadecimal digits>
+APP_KEY_HEX=<32 hexadecimal digits>  # optional; per-session, must be verified
+APP_IV_HEX=<32 hexadecimal digits>   # optional; must accompany APP_KEY_HEX
 ```
 
-Only strict hexadecimal without separators is accepted. There are no hardcoded
+Only strict hexadecimal without separators is accepted; omit both optional APP fields until application-key derivation has been verified. There are no hardcoded
 keys or credentials in the branch.
 
 **Critical limitation:** The last 32 bytes of the observed plaintext vary
