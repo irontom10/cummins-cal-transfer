@@ -141,6 +141,34 @@ cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
 This self-contained unit test uses **synthetic** key, plaintext and IV.
 No proprietary secrets, trace files or credentials belong in Git.
 
+## Standalone P-256 backend (not wired to ECM I/O)
+
+`src/core/clip46_ecdh.c` and `src/core/clip46_ecdh.h` implement a
+standalone, **experimental** C89 P-256/OpenSSL provider. The module
+generates fresh local key pairs, validates/imports compressed peer
+points, derives 32-byte shared secrets, and provides AES-CBC/PKCS#7
+decoding. Its standalone regression test uses only synthetic data.
+
+**Important:** This commit does **not** integrate the provider into
+`clip46_experimental_auth()`, negotiate the GTIS4.6 application
+connection ID, or enable encrypted calibration reads. The provisional
+local public-point prefix `0x03` was observed in two INSITE sessions;
+its universal validity is **not** established.
+
+Run the Linux test using OpenSSL 3 at runtime:
+
+```sh
+cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+  tests/clip46_ecdh_test.c src/core/clip46_ecdh.c \
+  -ldl -o /tmp/clip46_ecdh_test
+/tmp/clip46_ecdh_test
+```
+
+Windows x86 would require a matching 32-bit `libcrypto-3.dll`. Android
+requires separately provisioned OpenSSL; this module is **not** part of
+either application's production build. No captured scalar, key, or IV is
+stored in the repository.
+
 ## Next implementation milestone
 
 Resolve the fresh ephemeral 32-byte field, session-specific
