@@ -48,6 +48,12 @@ jobs:
           build/tests/clip_secure_seed_test
           build/tests/clip46_poc_test
 
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            tests/clip46_ecdh_test.c src/core/clip46_ecdh.c \
+            -ldl -o build/tests/clip46_ecdh_test
+
+          build/tests/clip46_ecdh_test
+
   windows-x86:
     runs-on: windows-latest
 
