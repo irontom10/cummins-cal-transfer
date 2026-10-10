@@ -39,7 +39,13 @@ jobs:
 
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            tests/clip46_poc_test.c \
+            src/core/clip46_poc_secure.c \
+            -o build/tests/clip46_poc_test
+
           build/tests/clip_secure_seed_test
+          build/tests/clip46_poc_test
 
   windows-x86:
     runs-on: windows-latest
