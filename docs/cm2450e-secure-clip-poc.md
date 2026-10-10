@@ -21,11 +21,14 @@ handling is unaffected.
 7. Unless separately enabled, reports the 02 04 response and **stops**.
 8. With `CLIP46_POC_PULL=1`, requires a separate, locally provided
    **application-session** key and IV. It then constructs
-   `10 01 || AES-CBC-PKCS7(01 01 00 22 26)` and tests for a protected
-   `01 01` response. The first application payload is a 16-byte block.
+   `10 01 || AES-128-CBC-PKCS7(01 01 00 00 84)` and tests for
+   a protected `01 01` response. The first application payload is a
+   16-byte block. Another verified INSITE session started by querying
+   `0x21C8` instead of `0x0084`.
    It **does not** yet attempt descriptor or memory readback.
-   The actual application cipher mode, session key derivation and IV are
-   still subject to verification with a live INSITE crypto trace.
+   CBC, padding, and IV/key inputs are VERIFIED against 16 actual
+   native-to-CAN encrypted INSITE request events. **Derivation of the
+   per-session key and IV is still unknown.**
 
 A `02 04` response alone does **not** prove successful authentication.
 Its contents and subsequent ECDH/session state remain to be validated.
@@ -63,15 +66,21 @@ The first experiment may fail on the status query: we do **not**
 yet know whether the ECM requires ECDH completion before these services.
 
 The first application message is attempted only if the local configuration
-has `APP_KEY_HEX` and `APP_IV_HEX`. Without those fields, the program
-stops after `02 04` and **will not send another cleartext query**.
+has `APP_KEY_HEX` and `APP_IV_HEX` **AND** the operator has set
+`CLIP46_POC_CONN_ID` for the same session. The two paired INSITE
+sessions used `0x0B` and `0x0A`; neither came directly from the
+`02 04` envelope byte that was previously used as the session ID.
+An arbitrary override is NOT proof of authentication.
+Without these values, the program stops after `02 04` and **will not
+send another cleartext query**.
 It also stops upon an encrypted reply because its decrypt/key-agreement
 path is not validated yet.
 
 Use the separate native Windows `INSITEAppCryptoTrace v1.4` to determine
 the actual cipher/mode, caller, session key and IV at the first protected
-INSITE request before attempting live application requests. A captured
-application key or IV may be ephemeral and invalid in a new session.
+INSITE request before attempting live application requests. A captured application key/IV is
+session-specific in the two verified samples: do **not** reuse an INSITE
+session's APP_KEY_HEX/APP_IV_HEX for a fresh Cal Transfer handshake.
 **Do not select upload/programming**, run on an engine in service, or use
 this during flashing.
 
@@ -89,9 +98,12 @@ memory reads while ECDH and response validation are unresolved.
 
 A `02 04` response is **not** proof that application encryption works.
 The app-encryption primitive is C89-tested with synthetic CBC vectors,
-but actual GTIS4.6 cipher mode, IV policy and per-session key derivation
-are not confirmed. The reusable authentication AES key MUST NOT be reused
-as the application key by assumption.
+and actual INSITE ciphertext matches. The application key and IV are
+reused across requests **within one session**, but both differ between
+the two captured sessions. This branch does not yet reproduce the ECDH
+and/or key derivation needed to generate a new session's values.
+The reusable authentication AES key MUST NOT be reused as the
+application key.
 
 ## Manual config specification
 
