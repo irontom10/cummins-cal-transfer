@@ -572,7 +572,7 @@ uECC_VLI_API void uECC_vli_mmod(uECC_word_t *result,
                                 wordcount_t num_words) {
     uECC_word_t mod_multiple[2 * uECC_MAX_WORDS];
     uECC_word_t tmp[2 * uECC_MAX_WORDS];
-    uECC_word_t *v[2] = {tmp, product};
+    uECC_word_t *v[2];
     uECC_word_t index;
 
     /* Shift mod so its highest set bit is at the maximum position. */
@@ -580,6 +580,8 @@ uECC_VLI_API void uECC_vli_mmod(uECC_word_t *result,
     wordcount_t word_shift = shift / uECC_WORD_BITS;
     wordcount_t bit_shift = shift % uECC_WORD_BITS;
     uECC_word_t carry = 0;
+    v[0] = tmp;
+    v[1] = product;
     uECC_vli_clear(mod_multiple, word_shift);
     if (bit_shift > 0) {
         for(index = 0; index < (uECC_word_t)num_words; ++index) {
@@ -951,12 +953,14 @@ static uECC_word_t EccPoint_compute_public_key(uECC_word_t *result,
                                                uECC_Curve curve) {
     uECC_word_t tmp1[uECC_MAX_WORDS];
     uECC_word_t tmp2[uECC_MAX_WORDS];
-    uECC_word_t *p2[2] = {tmp1, tmp2};
+    uECC_word_t *p2[2];
     uECC_word_t *initial_Z = 0;
     uECC_word_t carry;
 
     /* Regularize the bitcount for the private key so that attackers cannot use a side channel
        attack to learn the number of leading zeros. */
+    p2[0] = tmp1;
+    p2[1] = tmp2;
     carry = regularize_k(private_key, tmp1, tmp2, curve);
 
     /* If an RNG function was specified, try to get a random initial Z value to improve
@@ -1056,7 +1060,7 @@ int uECC_shared_secret(const uint8_t *public_key,
     uECC_word_t _private[uECC_MAX_WORDS];
 
     uECC_word_t tmp[uECC_MAX_WORDS];
-    uECC_word_t *p2[2] = {_private, tmp};
+    uECC_word_t *p2[2];
     uECC_word_t *initial_Z = 0;
     uECC_word_t carry;
     wordcount_t num_words = curve->num_words;
@@ -1073,6 +1077,8 @@ int uECC_shared_secret(const uint8_t *public_key,
 
     /* Regularize the bitcount for the private key so that attackers cannot use a side channel
        attack to learn the number of leading zeros. */
+    p2[0] = _private;
+    p2[1] = tmp;
     carry = regularize_k(_private, _private, tmp, curve);
 
     /* If an RNG function was specified, try to get a random initial Z value to improve
@@ -1255,7 +1261,7 @@ static int uECC_sign_with_k_internal(const uint8_t *private_key,
 
     uECC_word_t tmp[uECC_MAX_WORDS];
     uECC_word_t s[uECC_MAX_WORDS];
-    uECC_word_t *k2[2] = {tmp, s};
+    uECC_word_t *k2[2];
     uECC_word_t *initial_Z = 0;
 #if uECC_VLI_NATIVE_LITTLE_ENDIAN
     uECC_word_t *p = (uECC_word_t *)signature;
@@ -1267,6 +1273,8 @@ static int uECC_sign_with_k_internal(const uint8_t *private_key,
     wordcount_t num_n_words = BITS_TO_WORDS(curve->num_n_bits);
     bitcount_t num_n_bits = curve->num_n_bits;
 
+    k2[0] = tmp;
+    k2[1] = s;
     /* Make sure 0 < k < curve_n */
     if (uECC_vli_isZero(k, num_words) || uECC_vli_cmp(curve->n, k, num_n_words) != 1) {
         return 0;
@@ -1664,9 +1672,11 @@ void uECC_point_mult(uECC_word_t *result,
                      uECC_Curve curve) {
     uECC_word_t tmp1[uECC_MAX_WORDS];
     uECC_word_t tmp2[uECC_MAX_WORDS];
-    uECC_word_t *p2[2] = {tmp1, tmp2};
+    uECC_word_t *p2[2];
     uECC_word_t carry = regularize_k(scalar, tmp1, tmp2, curve);
 
+    p2[0] = tmp1;
+    p2[1] = tmp2;
     EccPoint_mult(result, point, p2[!carry], 0, curve->num_n_bits + 1, curve);
 }
 
