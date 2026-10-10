@@ -48,3 +48,7 @@ src/android/gradle/wrapper/gradle-wrapper.jar
 # Local-only CM2450E test material; NEVER commit captured credentials
 clip46*.cfg
 *clip46*private*.hex
+
+# Debugger captures / sensitive on-wire session logs
+INSITE_sensitive_buffers*.hex
+*.jolg
