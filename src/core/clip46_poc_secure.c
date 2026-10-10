@@ -235,12 +235,25 @@ int clip46_poc_load_config(const char *path, struct clip46_poc_config *cfg)
         } else if(strncmp(line,"OPAQUE32_HEX=",13U)==0) {
             if((flags&4U)!=0U || clip46_poc_decode_hex(line+13U,cfg->opaque32,32U)!=0) valid=0;
             flags|=4U;
+        } else if(strncmp(line,"APP_KEY_HEX=",12U)==0) {
+            if((flags&8U)!=0U ||
+               clip46_poc_decode_hex(line+12U,cfg->app_key,16U)!=0)
+                valid=0;
+            flags|=8U;
+        } else if(strncmp(line,"APP_IV_HEX=",11U)==0) {
+            if((flags&16U)!=0U ||
+               clip46_poc_decode_hex(line+11U,cfg->app_iv,16U)!=0)
+                valid=0;
+            flags|=16U;
         } else valid=0;
         if(!valid) break;
     }
     if(ferror(fp)) valid=0;
     fclose(fp);
-    if(flags!=7U) valid=0;
+    if((flags&7U)!=7U ||
+       ((flags&24U)!=0U && (flags&24U)!=24U))
+        valid=0;
+    cfg->has_app_material = ((flags&24U)==24U) ? 1 : 0;
     clip46_poc_wipe(line,sizeof(line));
     if(!valid) {clip46_poc_wipe(cfg,sizeof(*cfg));return -1;}
     return 0;
