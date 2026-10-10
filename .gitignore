@@ -44,3 +44,7 @@ src/android/.vendor-rp1210/
 src/android/.nexiq-cache/
 
 src/android/gradle/wrapper/gradle-wrapper.jar
+
+# Local-only CM2450E test material; NEVER commit captured credentials
+clip46*.cfg
+*clip46*private*.hex
