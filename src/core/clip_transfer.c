@@ -17,6 +17,7 @@
 #include "j1939_transport.h"
 #include "echo_transfer.h"
 #include "clip_crypto.h"
+#include "clip46_poc_secure.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
 #include "ct_platform.h"
@@ -50,9 +51,11 @@
 #define PULL_ERR_LEGACY_TX_BLOCKED      -113
 #define PULL_ERR_POST_VERIFY            -114
 #define PULL_ERR_SECURE_AUTH            -115
+#define PULL_ERR_SECURE_POST_AUTH       -116
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
+#define PULL_DETECTED_SECURE_CLIP        2
 
 /*
  * ENI / ELITE II protocol values recovered from the supplied CM550/CM554
@@ -578,16 +581,10 @@ clip_exchange(struct pull_ctx *ctx,
         n_app = incoming_len - 5U;
 
         /*
-         * The secure handshake observed on CM2450E starts with the same
-         * 01 01 request as legacy CLIP, but returns a 02 02 application PDU
-         * containing a 16-byte challenge.  The existing exchange filter
-         * expected 01 02, silently discarded the valid reply, and reported
-         * a misleading timeout while requesting the seed.
-         *
-         * Detect it only during seed negotiation.  Legacy level-2 TEA
-         * (01 02) and this 02-family challenge must never be conflated.
-         * The 02 03 / 02 04 authenticated exchange is NOT implemented;
-         * do not send legacy credentials or calibration writes on this path.
+         * Secure CLIP is a distinct 02 family; promote the valid 02 02
+         * reply to the experimental handler. Never run legacy TEA against it.
+         * The subsequent 02 03 is only attempted with explicit local
+         * operator-supplied material.
          */
         if (expected0 == 0x01U && check_expected1 &&
             expected1 == CLIP_OPCODE_SEED &&
@@ -597,18 +594,17 @@ clip_exchange(struct pull_ctx *ctx,
 
             if (clip_parse_secure_seed_reply(incoming + 5U, n_app,
                                              &secure_seed) != CLIP_OK) {
-                set_last_error_text(
-                    "Secure CLIP 02 02 seed reply has an unexpected length or format.");
+                set_last_error_text("Secure CLIP 02 02 reply is malformed.");
                 return PULL_ERR_PROTOCOL;
             }
-
-            set_last_error_text(
-                "Secure CLIP (CM2450E-style) detected: 02 02 seed with a "
-                "16-byte challenge. This ECM requires a distinct 02 03 / "
-                "02 04 authentication exchange, not the legacy CLIP TEA "
-                "context. Secure authentication and calibration transfer "
-                "are not implemented; no programming was attempted.");
-            return PULL_ERR_SECURE_AUTH;
+            if (n_app > reply_capacity) {
+                set_last_error_text("Secure CLIP seed exceeds receive buffer.");
+                return PULL_ERR_PROTOCOL;
+            }
+            ctx->session_id = incoming[4];
+            memcpy(reply_app, incoming + 5U, n_app);
+            *reply_len = n_app;
+            return PULL_DETECTED_SECURE_CLIP;
         }
 
         /*
@@ -653,6 +649,14 @@ clip_exchange(struct pull_ctx *ctx,
                 *reply_len = n_app;
                 return PULL_OK;
             }
+            set_clip_negative_error(incoming + 5U, n_app);
+            return PULL_ERR_PROTOCOL;
+        }
+
+        /* A secure-auth failure must not become a misleading timeout. */
+        if (expected0 == 0x02U && check_expected1 &&
+            expected1 == 0x04U && n_app >= 2U &&
+            incoming[5] == 0x03U) {
             set_clip_negative_error(incoming + 5U, n_app);
             return PULL_ERR_PROTOCOL;
         }
@@ -708,6 +712,92 @@ clip_send_only(struct pull_ctx *ctx,
     return rc;
 }
 
+/*
+ * Bench-only GTIS4.6 authentication experiment. The observed ciphertext is
+ * IV[16] || AES-128-CBC/PKCS#7( challenge[16] || context[51] ||
+ * opaque[32] ), and 02 03 precedes the 128-byte body.
+ *
+ * The 32-byte field's fresh-session generation is not yet understood.
+ * Therefore a 02 04 reply is logged as a response, NEVER proof of a
+ * validated authenticated session. No calibration/status/read/write follows.
+ */
+static int
+clip46_experimental_auth(struct pull_ctx *ctx,
+                         const clip_u8 *seed_pdu, size_t seed_len)
+{
+    struct clip_secure_seed_reply seed;
+    struct clip46_poc_config config;
+    const char *path;
+    clip_u8 plaintext[CLIP46_PLAINTEXT_BYTES];
+    clip_u8 iv[16];
+    clip_u8 app[CLIP46_APP_BYTES];
+    clip_u8 reply[256];
+    size_t reply_len;
+    int rc;
+
+    memset(&config, 0, sizeof(config));
+    memset(plaintext, 0, sizeof(plaintext));
+    memset(iv, 0, sizeof(iv));
+    memset(app, 0, sizeof(app));
+    rc = PULL_ERR_CRYPTO;
+
+    if (clip_parse_secure_seed_reply(seed_pdu, seed_len, &seed) != CLIP_OK) {
+        set_last_error_text("Invalid GTIS4.6 02 02 challenge.");
+        return PULL_ERR_PROTOCOL;
+    }
+    path = getenv("CLIP46_POC_FILE");
+    if (path == NULL || path[0] == '\0') {
+        set_last_error_text(
+            "Experimental secure CLIP detected. Set CLIP46_POC_FILE to a "
+            "local KEY_HEX / CONTEXT_HEX / OPAQUE32_HEX file to test 02 03. "
+            "Nothing was sent beyond the seed request.");
+        return PULL_ERR_CRYPTO;
+    }
+    if (clip46_poc_load_config(path, &config) != 0) {
+        set_last_error_text(
+            "Invalid CLIP46_POC_FILE: expected KEY_HEX (16 bytes), "
+            "CONTEXT_HEX (51 bytes), OPAQUE32_HEX (32 bytes). No auth sent.");
+        goto done;
+    }
+    if (clip46_poc_random_iv(iv) != 0 ||
+        clip46_poc_build(seed.challenge, config.context, config.opaque32,
+                         plaintext) != 0 ||
+        clip46_poc_encrypt(config.key, iv, plaintext, app + 2U) != 0) {
+        set_last_error_text("Secure CLIP test encryption or IV generation failed.");
+        goto done;
+    }
+    app[0] = 0x02U;
+    app[1] = 0x03U;
+    report_progress(ctx, 7, "TEST: sending secure CLIP 02 03...");
+    rc = clip_exchange(ctx, ctx->session_id, app, sizeof(app),
+                       0x02U, 0x04U, 1,
+                       reply, sizeof(reply), &reply_len,
+                       CLIP_TIMEOUT_MS);
+    if (rc != PULL_OK) {
+        /* clip_exchange supplied the transport or negative-response error. */
+        goto done;
+    }
+    if (reply_len != 146U && reply_len != 162U) {
+        set_last_error_text(
+            "Secure CLIP received 02 04, but length was not 146 or 162.");
+        rc = PULL_ERR_PROTOCOL;
+        goto done;
+    }
+    set_last_error_text(
+        "EXPERIMENTAL GTIS4.6: sent 02 03 and received 02 04. "
+        "Fresh-session authentication NOT yet validated: the opaque "
+        "32-byte field and 02 04 key agreement remain under investigation. "
+        "No calibration access or programming was attempted.");
+    rc = PULL_ERR_SECURE_POST_AUTH;
+
+done:
+    clip46_poc_wipe(&config, sizeof(config));
+    clip46_poc_wipe(plaintext, sizeof(plaintext));
+    clip46_poc_wipe(iv, sizeof(iv));
+    clip46_poc_wipe(app, sizeof(app));
+    return rc;
+}
+
 static int
 clip_authenticate(struct pull_ctx *ctx)
 {
@@ -742,6 +832,8 @@ clip_authenticate(struct pull_ctx *ctx)
                        sizeof(seed_reply_pdu),
                        &seed_reply_len,
                        CLIP_TIMEOUT_MS);
+    if (rc == PULL_DETECTED_SECURE_CLIP)
+        return clip46_experimental_auth(ctx, seed_reply_pdu, seed_reply_len);
     if (rc != PULL_OK)
         return rc;
 
