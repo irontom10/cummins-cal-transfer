@@ -13,7 +13,7 @@ jobs:
         run: |
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_poc_test.c src/core/clip46_poc_secure.c -o /tmp/clip46_aes
           /tmp/clip46_aes
-          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_p256_test.c src/core/clip46_poc_secure.c src/core/clip46_p256.c -o /tmp/clip46_p256
+          cc -DCLIP46_TEST_DIAG -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_p256_test.c src/core/clip46_poc_secure.c src/core/clip46_p256.c -o /tmp/clip46_p256
           /tmp/clip46_p256
   windows-x86:
     runs-on: windows-latest

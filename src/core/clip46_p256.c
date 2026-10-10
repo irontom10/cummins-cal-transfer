@@ -79,6 +79,10 @@ int clip46_p256_public_from_private(const unsigned char scalar[32],
     memset(compressed, 0, 33U);
     uECC_set_rng(p256_rng);
     ok = uECC_compute_public_key(scalar, public_xy, uECC_secp256r1());
+#if defined(CLIP46_TEST_DIAG)
+    fprintf(stderr, "P256 diagnostic: computed=%d valid=%d\n", ok,
+            uECC_valid_public_key(public_xy, uECC_secp256r1()));
+#endif
     if (ok == 1 && uECC_valid_public_key(public_xy, uECC_secp256r1()) == 1)
         uECC_compress(public_xy, compressed, uECC_secp256r1());
     else ok = 0;
