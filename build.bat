@@ -91,8 +91,8 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
-    kernel32.lib user32.lib
+    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip46_poc_secure.obj clip_cal.obj ccal_crc.obj ^
+    kernel32.lib user32.lib advapi32.lib
 if errorlevel 1 goto :fail_from_obj
 
 echo [2/4] Building standalone UI config store...
