@@ -55,6 +55,8 @@
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
 #define PULL_DETECTED_SECURE_CLIP        2
+#define PULL_DETECTED_SECURE_QUERY_OK    3
+#define CLIP46_POC_MAX_DUMP_BYTES        (32UL * 1024UL * 1024UL)
 
 /*
  * ENI / ELITE II protocol values recovered from the supplied CM550/CM554
@@ -116,6 +118,7 @@ struct pull_ctx {
     clip_u8 session_id;
     unsigned int wire_slot;
     int tolerate_negative;
+    int clip46_read_only_workflow;
     RP1210_PROGRESS_CALLBACK progress;
 };
 
@@ -782,11 +785,69 @@ clip46_experimental_auth(struct pull_ctx *ctx,
         rc = PULL_ERR_PROTOCOL;
         goto done;
     }
+    /*
+     * Opt-in bench read experiment: do not interpret 02 04 alone as
+     * authentication success. First demand an actual positive response to
+     * a known read-only status query. Upload callers cannot enter this path.
+     */
+    if (ctx->clip46_read_only_workflow) {
+        const char *enable;
+        enable = getenv("CLIP46_POC_PULL");
+        if (enable != NULL && strcmp(enable, "1") == 0) {
+            clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
+            clip_u8 response[CLIP_APP_MAX];
+            const clip_u8 *data;
+            size_t response_len;
+            size_t data_len;
+            char why[256];
+            int query_rc;
+
+            if (clip_cal_build_query_request(0U, CLIP_CAL_ID_STATUS_2226,
+                                             request) != CLIP_CAL_OK) {
+                set_last_error_text("Secure CLIP status probe build failed.");
+                rc = PULL_ERR_CAL;
+                goto done;
+            }
+            report_progress(ctx, 8,
+                "Secure CLIP: probing read-only status 0x2226...");
+            query_rc = clip_exchange(ctx, ctx->session_id,
+                                     request, sizeof(request),
+                                     CLIP_CAL_SERVICE_REPLY, 0x00U, 1,
+                                     response, sizeof(response),
+                                     &response_len, CLIP_TIMEOUT_MS);
+            if (query_rc != PULL_OK) {
+                safe_copy(why, g_last_error, sizeof(why));
+                {
+                    char msg[512];
+                    sprintf(msg,
+                        "GTIS4.6 02 04 received, but first read-only "
+                        "status query was not acknowledged: %.256s. "
+                        "No memory read or mode change attempted.", why);
+                    set_last_error_text(msg);
+                }
+                rc = query_rc;
+                goto done;
+            }
+            if (clip_cal_parse_reply(response, response_len, 0x00U,
+                                      &data, &data_len) != CLIP_CAL_OK) {
+                set_last_error_text(
+                    "GTIS4.6 status query reply failed sequence validation.");
+                rc = PULL_ERR_PROTOCOL;
+                goto done;
+            }
+            (void)data;
+            (void)data_len;
+            report_progress(ctx, 9,
+                "GTIS4.6 read-only status accepted; checking descriptor...");
+            rc = PULL_DETECTED_SECURE_QUERY_OK;
+            goto done;
+        }
+    }
     set_last_error_text(
         "EXPERIMENTAL GTIS4.6: sent 02 03 and received 02 04. "
-        "Fresh-session authentication NOT yet validated: the opaque "
-        "32-byte field and 02 04 key agreement remain under investigation. "
-        "No calibration access or programming was attempted.");
+        "Set CLIP46_POC_PULL=1 in the read-only workflow to test "
+        "status/descriptor/memory queries. No calibration access or "
+        "programming was attempted.");
     rc = PULL_ERR_SECURE_POST_AUTH;
 
 done:
@@ -3305,6 +3366,7 @@ rp1210_pull_ccal(const char *api_name,
     ctx.session_id = 0x01U;
     ctx.wire_slot = 0U;
     ctx.progress = progress;
+    ctx.clip46_read_only_workflow = 1;
     clip_open = 0;
     elite_open = 0;
 
@@ -3389,6 +3451,86 @@ rp1210_pull_ccal(const char *api_name,
         report_progress(&ctx, 100, "ENI/ELITE II calibration saved and CRC verified.");
         clear_last_error();
         rc = PULL_OK;
+        goto done;
+    }
+
+    if (rc == PULL_DETECTED_SECURE_QUERY_OK) {
+        /*
+         * No mode 0x000B/0x0011/0x0017, no unlock, no write.
+         * Try the descriptor directly after the successful status query.
+         * If the ECM requires additional setup, fail rather than guessing.
+         */
+        size_t read_total;
+        size_t name_len;
+        char *filename;
+        FILE *fp;
+        int write_ok;
+
+        clip_open = 1;
+        sequence = 0x01U;
+        report_progress(&ctx, 10,
+            "Secure CLIP: querying calibration descriptor (read-only)...");
+        rc = cal_get_descriptor(&ctx, &sequence, &map);
+        if (rc != PULL_OK)
+            goto done;
+
+        read_total = clip_cal_total_size(&map);
+        if (read_total == 0U ||
+            read_total > (size_t)CLIP46_POC_MAX_DUMP_BYTES) {
+            set_last_error_text(
+                "Experimental descriptor exceeds 32 MiB read-only limit "
+                "or is empty. No memory requests were sent.");
+            rc = PULL_ERR_CAL;
+            goto done;
+        }
+        rc = allocate_image(&map, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        report_progress(&ctx, 12,
+            "Secure CLIP: reading descriptor-listed memory ranges...");
+        rc = pull_memory_ranges(&ctx, &sequence, &map, &image);
+        if (rc != PULL_OK)
+            goto done;
+
+        /*
+         * Save as Intel HEX, NOT CCAL. We do not have verified CM2450E
+         * compatibility metadata or a validated session-specific CRC.
+         */
+        name_len = strlen(out_path);
+        if (name_len > ((size_t)-1) - 32U) {
+            set_last_error_text("Experimental destination path is too long.");
+            rc = PULL_ERR_FILE;
+            goto done;
+        }
+        filename = (char *)malloc(name_len + 32U);
+        if (filename == NULL) {
+            set_last_error_text("Out of memory naming experimental image.");
+            rc = PULL_ERR_MEMORY;
+            goto done;
+        }
+        sprintf(filename, "%s.secure-read.ihex", out_path);
+        fp = fopen(filename, "wb");
+        if (fp == NULL) {
+            free(filename);
+            set_last_error_text("Unable to create experimental Intel HEX.");
+            rc = PULL_ERR_FILE;
+            goto done;
+        }
+        write_ok = write_ihex_image(fp, &image);
+        if (fclose(fp) != 0)
+            write_ok = 0;
+        if (!write_ok) {
+            (void)remove(filename);
+            set_last_error_text("Failed writing experimental Intel HEX.");
+            rc = PULL_ERR_FILE;
+        } else {
+            report_progress(&ctx, 100,
+                "GTIS4.6 read-only experimental Intel HEX saved.");
+            clear_last_error();
+            rc = PULL_OK;
+        }
+        free(filename);
         goto done;
     }
 
