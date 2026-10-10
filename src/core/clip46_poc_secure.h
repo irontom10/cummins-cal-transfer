@@ -11,6 +11,10 @@ struct clip46_poc_config {
     unsigned char key[16];
     unsigned char context[51];
     unsigned char opaque32[32];
+    /* Optional, local-only ECDH-derived per-session application material. */
+    unsigned char app_key[16];
+    unsigned char app_iv[16];
+    int has_app_material;
 };
 /* Strict local-only config: KEY_HEX, CONTEXT_HEX, OPAQUE32_HEX. */
 int clip46_poc_load_config(const char *path, struct clip46_poc_config *cfg);
