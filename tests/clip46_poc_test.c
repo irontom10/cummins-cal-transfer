@@ -39,9 +39,9 @@ int main(void)
      */
     {
         static const unsigned char query_plain[5] =
-            {0x01U,0x01U,0x00U,0x22U,0x26U};
+            {0x01U,0x01U,0x00U,0x00U,0x84U};
         static const char query_cipher_hex[] =
-            "7811bd6f968bdc7e680fafe4f69a6ccf";
+            "6cc37564dd4ce89f1526fa5e80c45999";
         unsigned char query_cipher[16], query_want[16];
         size_t cipher_len;
         for (i = 0U; i < 16U; ++i)
