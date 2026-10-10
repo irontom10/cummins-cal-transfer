@@ -2,7 +2,7 @@
 Create a local experimental CM2450E auth config from the user's own
 INSITECallTrace v1.3 sensitive buffer file.
 NO credentials are printed, transmitted, or committed.
-The 32-byte field is copied from the capture; fresh-session rules are unknown.
+The ephemeral public X coordinate is generated fresh at runtime; never replay captured public points.
 #>
 param(
     [Parameter(Mandatory = $true)] [string] $TraceFile,
@@ -36,14 +36,12 @@ if ($plain[0].Hex.Length -ne 198 -or $key[0].Hex.Length -ne 32) {
     throw "Unexpected capture lengths. Refusing to export."
 }
 $context = $plain[0].Hex.Substring(32, 102)
-$opaque32 = $plain[0].Hex.Substring(134, 64)
 $lines = @(
     "# Sensitive local test material; NEVER commit or share this file",
     "KEY_HEX=$($key[0].Hex)",
-    "CONTEXT_HEX=$context",
-    "OPAQUE32_HEX=$opaque32"
+    "CONTEXT_HEX=$context"
 )
 $full = [System.IO.Path]::GetFullPath($OutputFile)
 [System.IO.File]::WriteAllLines($full, $lines, [System.Text.Encoding]::ASCII)
 Write-Host "Wrote local CLIP46 test configuration to $full (secrets not displayed)."
-Write-Warning "Captured opaque32 may not be valid for a fresh ECC session. Test on authorized bench ECM only."
+Write-Warning "Only auth key and context were exported; the tool generates fresh P-256 session material. Test on an authorized bench ECM only."
