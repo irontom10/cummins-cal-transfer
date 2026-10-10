@@ -18,8 +18,13 @@ handling is unaffected.
 5. Uses self-contained **ISO C89 AES-128-CBC + PKCS#7** to generate
    `IV[16] || ciphertext[112]`.
 6. Sends `02 03 || body[128]` and waits for an `02 04` message.
-7. Displays the response as an experimental result, then **stops**.
-   It does **not** continue to calibration data access or any flash writes.
+7. Unless separately enabled, reports the 02 04 response and **stops**.
+8. With CLIP46_POC_PULL=1 on the **read-only pull workflow only**,
+   probes status ID 0x2226 (service 0x10, seq 0), then reads calibration
+   descriptor ID 0x000001 (service 0x10, seq 1). If both return valid
+   positive replies, reads the descriptor's memory ranges with service
+   0x13 (maximum total 32 MiB). If all reads succeed, saves raw Intel HEX.
+   **Never** sends mode/unlock/loader/programming operations on this path.
 
 A `02 04` response alone does **not** prove successful authentication.
 Its contents and subsequent ECDH/session state remain to be validated.
@@ -47,17 +52,39 @@ Launch the app with the path set in its environment:
 
 ```powershell
 $env:CLIP46_POC_FILE = "$env:USERPROFILE\Downloads\clip46-bench-local.cfg"
+$env:CLIP46_POC_PULL = "1"
 .\build\app\CalibrationTransfer.exe
 ```
 
 Connect to your **authorized bench ECM** using the ordinary *read* workflow.
 Record the RP1210/J1939 traffic and the UI's final error/status message.
+The first experiment may fail on the status query: we do **not**
+yet know whether the ECM requires ECDH completion before these services.
+
+If status, descriptor, and all memory reads succeed, the program saves
+`<selected .ccal output path>.secure-read.ihex`. It intentionally does
+not generate a .ccal or invent compatibility metadata/CRC. An error
+at any stage stops the experiment without reading subsequent ranges.
 **Do not select upload/programming**, run on an engine in service, or use
 this during flashing.
 
 Without `CLIP46_POC_FILE`, the software still recognizes secure CLIP but
 fails with an explanatory error **before sending 02 03**. With malformed
 config, it also refuses to send.
+
+## Read-only PoC behavior
+
+The only ECM application services issued in the optional read experiment
+are 0x10 (parameter/status/descriptor query) and 0x13 (memory read).
+No 0x12 mode transitions, no 0x0011 read-phase changes, no
+calibration unlock, erase, or programming requests. The experimental
+upload workflow never enables readback, even if CLIP46_POC_PULL=1.
+
+A positive 0x10 status reply is evidence that this one read operation
+was accepted, not proof of complete secure session authentication. If
+this ECM requires further setup before memory access, the trial will
+stop. To test it, explicitly set CLIP46_POC_PULL=1. Otherwise
+previous behavior (stop at 02 04) remains unchanged.
 
 ## Manual config specification
 
