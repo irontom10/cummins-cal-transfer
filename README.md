@@ -4,7 +4,7 @@
 
 **Calibration Transfer** is an independent, open-source Cummins ECM calibration transfer utility for Windows and Android. Built around a shared **ISO C89** protocol core, it reads calibration data from supported ECMs into `.ccal` files and provides validated upload support for compatible controllers over **J1939/RP1210**.
 
-The goal is straightforward: portable, inspectable calibration tooling without duplicating the protocol stack for every operating system. Windows uses a .NET 10 WinForms front end and a Win32 RP1210 backend; Android uses the same native calibration/J1939 core through its own front end and transport adapter.
+The goal is straightforward: portable, inspectable calibration tooling without duplicating the protocol stack for every operating system. Windows now defaults to an ISO C89 Win32 API front end linked directly with the native RP1210/J1939 core. It requires no .NET runtime or WinForms. The previous WinForms front end is retained as an opt-in legacy build; Android uses the same native calibration/J1939 core through its own front end and transport adapter.
 
 **Status:** Active development. Readback support spans multiple protocol families, but programming support is intentionally narrower. A valid `.ccal` file is not, by itself, proof that it is compatible with a particular ECM. Treat calibration uploads as potentially destructive and follow the [programming caution](#programming-caution).
 
@@ -39,14 +39,18 @@ The goal is straightforward: portable, inspectable calibration tooling without d
     │   ├── rp1210scan.h
     │   └── ct_platform.c/.h
     ├── windows/
-    │   ├── CalibrationTransfer.csproj
-    │   ├── ConfigStore.cs
-    │   ├── EmbeddedNative.cs
-    │   ├── NativeRP1210.cs
-    │   ├── Rp1210Form.cs
-    │   ├── Program.cs
+    │   ├── win-api/
+    │   │   ├── main.c
+    │   │   └── app.rc
+    │   ├── win-forms/            # optional legacy .NET 10 frontend
+    │   │   ├── CalibrationTransfer.csproj
+    │   │   ├── Program.cs
+    │   │   ├── Rp1210Form.cs
+    │   │   ├── NativeRP1210.cs
+    │   │   ├── EmbeddedNative.cs
+    │   │   └── ConfigStore.cs
     │   ├── caltool.ico
-    │   ├── native/
+    │   ├── native/               # shared Windows RP1210 backend
     │   │   ├── rp1210_transport.c
     │   │   ├── rp1210scan.c/.def
     │   │   └── config_store.def
@@ -71,7 +75,6 @@ Requirements:
 
 - Windows
 - x86 MSVC C/C++ build tools
-- .NET 10 SDK
 - A compatible 32-bit RP1210 implementation
 
 Run:
@@ -80,7 +83,15 @@ Run:
 build.bat
 ```
 
-The script switches to the x86 compiler toolchain when necessary, builds the native core, builds the CRC utility, and publishes the WinForms application.
+The default build uses plain Win32 controls, native common file dialogs, an asynchronous transfer worker, and direct C linkage to the existing protocol, RP1210, and TOML configuration code. The resulting executable does not load the CLR and does not require a .NET installation. The x86 target remains necessary for the 32-bit RP1210 vendor DLLs.
+
+To build the retained legacy WinForms UI instead (requires the .NET 10 SDK):
+
+```bat
+build.bat win-forms
+```
+
+The default is equivalent to `build.bat win-api`. Run only one target at a time because both publish to `build/app/CalibrationTransfer.exe`. The native front end has not yet been hardware-validated; do not use it for production ECM programming until verified on a test module.
 
 ### Android
 
@@ -104,14 +115,14 @@ build/
 │   └── CalibrationTransfer.exe
 ├── tools/
 │   └── crc_call.exe
-├── native/
+├── native/                   # legacy WinForms DLL intermediates
 │   ├── rp1210scan.dll
 │   └── ctconfig.dll
 ├── obj/
 └── dotnet/
 ```
 
-`rp1210scan.dll` and `ctconfig.dll` are embedded into `CalibrationTransfer.exe`; the copies under `build/native` are build intermediates.
+In the default native Win32 build, the RP1210 backend and config store are statically linked into the EXE; the two DLLs in `build/native` are unused build intermediates. For the optional WinForms build, they are embedded into the managed single-file executable.
 
 
 ## Configuration
@@ -133,9 +144,8 @@ Android uses the app-private file:
 (the exact Android app-data prefix is assigned by Android; the app obtains it
 from `getFilesDir()` rather than hard-coding it).
 
-The parser/editor lives in `src/core/config_store.c`. Windows exposes it
-through the embedded `ctconfig.dll`; Android calls the same implementation
-through JNI. Unknown TOML lines and comments are preserved on both platforms.
+The parser/editor lives in `src/core/config_store.c`. The native Windows UI links to it directly; the legacy WinForms UI uses
+the embedded `ctconfig.dll`; Android calls the same implementation through JNI. Unknown TOML lines and comments are preserved on both platforms.
 
 Current settings:
 
@@ -155,7 +165,7 @@ Set `baud = 0` to request RP1210 automatic bitrate detection (`J1939:Baud=Auto`)
 
 The native config API is section/key based rather than tied to this schema, so
 future UI settings can be added without coupling them to the protocol code.
-Windows currently uses `adapter.device`; Android uses `adapter.mac`. Because
+Both Windows front ends use `adapter.device`; Android uses `adapter.mac`. Because
 the editor preserves unknown keys, the same TOML schema can carry both without
 either front end destroying the other platform's settings.
 
