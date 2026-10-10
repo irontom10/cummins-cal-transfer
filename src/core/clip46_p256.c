@@ -80,8 +80,27 @@ int clip46_p256_public_from_private(const unsigned char scalar[32],
     uECC_set_rng(p256_rng);
     ok = uECC_compute_public_key(scalar, public_xy, uECC_secp256r1());
 #if defined(CLIP46_TEST_DIAG)
-    fprintf(stderr, "P256 diagnostic: computed=%d valid=%d\n", ok,
-            uECC_valid_public_key(public_xy, uECC_secp256r1()));
+    {
+        uECC_word_t native[uECC_MAX_WORDS];
+        unsigned char probe[4];
+        int entropy_ok, without_rng;
+        entropy_ok = p256_rng(probe, sizeof(probe));
+        uECC_vli_bytesToNative(native, scalar, 32);
+        without_rng = 0;
+        if (ok != 1) {
+            uECC_set_rng(0);
+            without_rng = uECC_compute_public_key(scalar, public_xy, uECC_secp256r1());
+            uECC_set_rng(p256_rng);
+        }
+        fprintf(stderr, "P256 diag: compute=%d without_rng=%d entropy=%d nonzero=%d less_n=%d valid=%d\n",
+                ok, without_rng, entropy_ok,
+                !uECC_vli_isZero(native, BITS_TO_WORDS(uECC_secp256r1()->num_n_bits)),
+                uECC_vli_cmp(uECC_secp256r1()->n, native,
+                             BITS_TO_WORDS(uECC_secp256r1()->num_n_bits)),
+                uECC_valid_public_key(public_xy, uECC_secp256r1()));
+        p256_wipe(native, sizeof(native));
+        p256_wipe(probe, sizeof(probe));
+    }
 #endif
     if (ok == 1 && uECC_valid_public_key(public_xy, uECC_secp256r1()) == 1)
         uECC_compress(public_xy, compressed, uECC_secp256r1());
