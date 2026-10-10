@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - experiment/cm2450e-secure-clip-poc
   pull_request:
 
 jobs:
