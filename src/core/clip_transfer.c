@@ -678,15 +678,23 @@ clip_exchange(struct pull_ctx *ctx,
          * context immediately after this call.
          */
         /*
-         * CM2450E: 02 04 byte 4 is consistently 0x08 in our captures
-         * and is NOT the application connection ID. The outer byte 3
-         * agrees with INSITE in recent captures; some older traces
-         * differ, so preserve a local override for controlled tests.
+         * CM2450E: 02 04 byte 4 (often 0x08) is NOT established as
+         * the application connection ID. INSITE's first app requests
+         * in the paired traces use 0x0B and 0x0A respectively, neither
+         * equal to this byte nor reliably to outer byte 3. The active
+         * connection ID needs to come from session negotiation; until
+         * then, only an explicit local test override is accepted.
          */
         if (expected0 == 0x02U && check_expected1 &&
             expected1 == 0x04U) {
             const char *override_id;
-            ctx->session_id = incoming[3];
+            /*
+             * No universal application connection ID is established yet.
+             * We require an explicit local override for post-02 04 trials.
+             * Preserve the outer received byte only for normal transport
+             * bookkeeping; it is not the app session ID.
+             */
+            ctx->session_id = incoming[4];
             override_id = getenv("CLIP46_POC_CONN_ID");
             if (override_id != NULL && override_id[0] != '\0') {
                 char *endp;
@@ -819,7 +827,7 @@ clip46_experimental_auth(struct pull_ctx *ctx,
         enable = getenv("CLIP46_POC_PULL");
         if (enable != NULL && strcmp(enable, "1") == 0) {
             static const clip_u8 first_query_data[5] = {
-                0x01U, 0x01U, 0x00U, 0x22U, 0x26U
+                0x01U, 0x01U, 0x00U, 0x00U, 0x84U
             };
             clip_u8 request[18];
             clip_u8 response[256];
@@ -833,12 +841,31 @@ clip46_experimental_auth(struct pull_ctx *ctx,
              * derivation need a verified INSITE runtime trace.
              * Never send the known-invalid cleartext query again.
              */
+            /*
+             * The ID is negotiated outside the visible envelope bytes.
+             * Never reuse a guessed 02 04 byte as a valid connection.
+             */
+            {
+                const char *conn_id;
+                conn_id = getenv("CLIP46_POC_CONN_ID");
+                if (conn_id == NULL || conn_id[0] == '\0') {
+                    set_last_error_text(
+                        "GTIS4.6 first protected request: negotiated "
+                        "connection ID is unknown. Set CLIP46_POC_CONN_ID "
+                        "only when independently established for THIS "
+                        "session. No application request was sent.");
+                    rc = PULL_ERR_SECURE_POST_AUTH;
+                    goto done;
+                }
+            }
             if (!config.has_app_material) {
                 set_last_error_text(
                     "GTIS4.6 02 04 received. Protected application "
                     "query requires separately established session key "
                     "and IV: add APP_KEY_HEX and APP_IV_HEX to your "
-                    "local CLIP46_POC_FILE after verifying cipher mode. "
+                    "local CLIP46_POC_FILE after deriving values from "
+                    "THIS session. Reusing values from a previous INSITE "
+                    "session will not establish a valid encrypted session. "
                     "No cleartext query or memory read was sent.");
                 rc = PULL_ERR_SECURE_POST_AUTH;
                 goto done;
