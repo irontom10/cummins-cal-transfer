@@ -33,6 +33,28 @@ int main(void)
     assert(clip46_poc_build(challenge,context,opaque,assembled)==0);
     assert(memcmp(assembled,plaintext,sizeof(plaintext))==0);
     assert(clip46_poc_random_iv(iv)==0);
+    /* First application message: 10 01 + 16-byte protected query body.
+     * This proves the generic primitive only; session key derivation
+     * and actual on-wire application mode remain unverified.
+     */
+    {
+        static const unsigned char query_plain[5] =
+            {0x01U,0x01U,0x00U,0x22U,0x26U};
+        static const char query_cipher_hex[] =
+            "7811bd6f968bdc7e680fafe4f69a6ccf";
+        unsigned char query_cipher[16], query_want[16];
+        size_t cipher_len;
+        for (i = 0U; i < 16U; ++i)
+            iv[i] = (unsigned char)(i+16U);
+        assert(clip46_poc_decode_hex(query_cipher_hex,
+                                    query_want, 16U) == 0);
+        cipher_len = 0U;
+        assert(clip46_poc_encrypt_application(key, iv,
+                 query_plain, sizeof(query_plain), query_cipher,
+                 sizeof(query_cipher), &cipher_len) == 0);
+        assert(cipher_len == 16U);
+        assert(memcmp(query_cipher, query_want, 16U) == 0);
+    }
     puts("CLIP46 C89 AES-CBC synthetic vector passed");
     return 0;
 }
