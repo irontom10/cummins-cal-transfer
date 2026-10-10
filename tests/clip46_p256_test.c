@@ -11,7 +11,16 @@ int main(void)
     struct clip46_p256_keypair fresh;
     memset(a, 0, sizeof(a)); memset(b, 0, sizeof(b));
     memset(zero, 0, sizeof(zero)); memset(bad_x, 0xff, sizeof(bad_x));
-    a[31] = 1U; b[31] = 2U;
+    {
+        unsigned int i;
+        for (i = 0U; i < 32U; ++i) {
+            a[i] = (unsigned char)(0x11U + i);
+            b[i] = (unsigned char)(0x33U + i);
+        }
+    }
+    assert(clip46_p256_generate(&fresh) == 0);
+    puts("P256 fresh key generation succeeded");
+    fflush(stdout);
     assert(clip46_p256_public_from_private(a, pa) == 0);
     assert(clip46_p256_public_from_private(b, pb) == 0);
     assert(clip46_p256_ecdh_xonly(a, pb + 1U, s1) == 0);
