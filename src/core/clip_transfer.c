@@ -678,7 +678,32 @@ clip_exchange(struct pull_ctx *ctx,
          * special case and overrides this with the ID decoded from the remote
          * context immediately after this call.
          */
-        ctx->session_id = incoming[4];
+        /*
+         * CM2450E: 02 04 byte 4 is consistently 0x08 in our captures
+         * and is NOT the application connection ID. The outer byte 3
+         * agrees with INSITE in recent captures; some older traces
+         * differ, so preserve a local override for controlled tests.
+         */
+        if (expected0 == 0x02U && check_expected1 &&
+            expected1 == 0x04U) {
+            const char *override_id;
+            ctx->session_id = incoming[3];
+            override_id = getenv("CLIP46_POC_CONN_ID");
+            if (override_id != NULL && override_id[0] != '\0') {
+                char *endp;
+                unsigned long n;
+                n = strtoul(override_id, &endp, 0);
+                if (endp == override_id || *endp != '\0' ||
+                    n == 0UL || n > 255UL) {
+                    set_last_error_text(
+                        "CLIP46_POC_CONN_ID must be an integer 1..255.");
+                    return PULL_ERR_ARGUMENT;
+                }
+                ctx->session_id = (clip_u8)n;
+            }
+        } else {
+            ctx->session_id = incoming[4];
+        }
 
         memcpy(reply_app, incoming + 5U, n_app);
         *reply_len = n_app;
