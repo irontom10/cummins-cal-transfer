@@ -154,6 +154,110 @@ int clip46_poc_encrypt_application(const unsigned char key[16],
     clip46_poc_wipe(block, sizeof(block));
     return 0;
 }
+
+/* CBC decryption for the 02 04 envelope (and future protected replies).
+ * Strict PKCS#7 padding; no decrypted bytes are exposed on failure.
+ */
+static unsigned char aes_gfmul(unsigned char a, unsigned char b)
+{
+    unsigned char out;
+    unsigned int j;
+    out = 0U;
+    for (j = 0U; j < 8U; ++j) {
+        if ((b & 1U) != 0U) out ^= a;
+        a = xtime(a);
+        b = (unsigned char)(b >> 1);
+    }
+    return out;
+}
+static void aes128_decrypt_block(const unsigned char in[16],
+                                 unsigned char out[16],
+                                 const unsigned char rk[176])
+{
+    unsigned char state[16], t[16], inverse[256], a,b,c,d;
+    unsigned int i, row, col, round;
+    for (i = 0U; i < 256U; ++i) inverse[sbox[i]] = (unsigned char)i;
+    memcpy(state, in, 16U);
+    for (i = 0U; i < 16U; ++i) state[i] ^= rk[160U+i];
+    for (round = 9U; round > 0U; --round) {
+        for (row = 0U; row < 4U; ++row)
+            for (col = 0U; col < 4U; ++col)
+                t[col*4U+row] = state[((col+4U-row)&3U)*4U+row];
+        for (i = 0U; i < 16U; ++i)
+            state[i] = (unsigned char)(inverse[t[i]] ^ rk[round*16U+i]);
+        for (col = 0U; col < 4U; ++col) {
+            i = col*4U;
+            a = state[i]; b = state[i+1U];
+            c = state[i+2U]; d = state[i+3U];
+            state[i] = (unsigned char)(aes_gfmul(a,14U) ^ aes_gfmul(b,11U) ^
+                                      aes_gfmul(c,13U) ^ aes_gfmul(d,9U));
+            state[i+1U] = (unsigned char)(aes_gfmul(a,9U) ^ aes_gfmul(b,14U) ^
+                                         aes_gfmul(c,11U) ^ aes_gfmul(d,13U));
+            state[i+2U] = (unsigned char)(aes_gfmul(a,13U) ^ aes_gfmul(b,9U) ^
+                                         aes_gfmul(c,14U) ^ aes_gfmul(d,11U));
+            state[i+3U] = (unsigned char)(aes_gfmul(a,11U) ^ aes_gfmul(b,13U) ^
+                                         aes_gfmul(c,9U) ^ aes_gfmul(d,14U));
+        }
+    }
+    for (row = 0U; row < 4U; ++row)
+        for (col = 0U; col < 4U; ++col)
+            t[col*4U+row] = state[((col+4U-row)&3U)*4U+row];
+    for (i = 0U; i < 16U; ++i)
+        out[i] = (unsigned char)(inverse[t[i]] ^ rk[i]);
+    clip46_poc_wipe(inverse, sizeof(inverse));
+    clip46_poc_wipe(state, sizeof(state));
+    clip46_poc_wipe(t, sizeof(t));
+}
+int clip46_poc_decrypt_cbc(const unsigned char key[16],
+                            const unsigned char iv[16],
+                            const unsigned char *cipher, size_t cipher_len,
+                            unsigned char *plain, size_t capacity,
+                            size_t *plain_len)
+{
+    unsigned char rk[176], prev[16], block[16];
+    size_t off, i, pad, plen;
+    unsigned int fail;
+    if (!key || !iv || !cipher || !plain || !plain_len ||
+        cipher_len == 0U || (cipher_len % 16U) != 0U ||
+        capacity < cipher_len) return -1;
+    *plain_len = 0U;
+    expand_key(key, rk);
+    memcpy(prev, iv, 16U);
+    for (off = 0U; off < cipher_len; off += 16U) {
+        aes128_decrypt_block(cipher+off, block, rk);
+        for (i = 0U; i < 16U; ++i)
+            plain[off+i] = (unsigned char)(block[i] ^ prev[i]);
+        memcpy(prev, cipher+off, 16U);
+    }
+    pad = plain[cipher_len-1U];
+    fail = (pad < 1U || pad > 16U) ? 1U : 0U;
+    /* Check the entire last block even for invalid pad, without OOB. */
+    for (i = 1U; i <= 16U; ++i) {
+        if (i <= pad && plain[cipher_len-i] != (unsigned char)pad)
+            fail = 1U;
+    }
+    if (fail == 0U) {
+        plen = cipher_len-pad;
+        *plain_len = plen;
+    } else {
+        clip46_poc_wipe(plain, cipher_len);
+    }
+    clip46_poc_wipe(rk, sizeof(rk));
+    clip46_poc_wipe(prev, sizeof(prev));
+    clip46_poc_wipe(block, sizeof(block));
+    return fail == 0U ? 0 : -1;
+}
+int clip46_poc_decrypt_envelope(const unsigned char key[16],
+                                const unsigned char *body, size_t body_len,
+                                unsigned char *plain, size_t capacity,
+                                size_t *plain_len)
+{
+    if (!key || !body || body_len < 32U ||
+        ((body_len-16U) % 16U) != 0U) return -1;
+    return clip46_poc_decrypt_cbc(key, body, body+16U, body_len-16U,
+                                  plain, capacity, plain_len);
+}
+
 int clip46_poc_build(const unsigned char challenge[16],
                      const unsigned char context51[51],
                      const unsigned char opaque32[32],
@@ -208,7 +312,7 @@ int clip46_poc_random_iv(unsigned char iv[16])
     return n==16U ? 0 : -1;
 #endif
 }
-/* Reject unknown/missing/duplicate config fields and overlong lines. */
+/* Strict local config. Captured public X / app credentials are forbidden. */
 int clip46_poc_load_config(const char *path, struct clip46_poc_config *cfg)
 {
     FILE *fp;
@@ -217,44 +321,34 @@ int clip46_poc_load_config(const char *path, struct clip46_poc_config *cfg)
     int valid;
     size_t len;
     if (!path || !cfg || !path[0]) return -1;
-    memset(cfg,0,sizeof(*cfg));
-    fp=fopen(path,"r");
+    memset(cfg, 0, sizeof(*cfg));
+    fp = fopen(path, "r");
     if (!fp) return -1;
-    flags=0U; valid=1;
-    while (fgets(line,sizeof(line),fp)!=NULL) {
-        len=strlen(line);
-        if(len==sizeof(line)-1U && line[len-1U]!='\n') {valid=0;break;}
-        while(len>0U && (line[len-1U]=='\n'||line[len-1U]=='\r')) line[--len]='\0';
-        if(line[0]=='#'||line[0]=='\0') continue;
-        if(strncmp(line,"KEY_HEX=",8U)==0) {
-            if((flags&1U)!=0U || clip46_poc_decode_hex(line+8U,cfg->key,16U)!=0) valid=0;
-            flags|=1U;
-        } else if(strncmp(line,"CONTEXT_HEX=",12U)==0) {
-            if((flags&2U)!=0U || clip46_poc_decode_hex(line+12U,cfg->context,51U)!=0) valid=0;
-            flags|=2U;
-        } else if(strncmp(line,"OPAQUE32_HEX=",13U)==0) {
-            if((flags&4U)!=0U || clip46_poc_decode_hex(line+13U,cfg->opaque32,32U)!=0) valid=0;
-            flags|=4U;
-        } else if(strncmp(line,"APP_KEY_HEX=",12U)==0) {
-            if((flags&8U)!=0U ||
-               clip46_poc_decode_hex(line+12U,cfg->app_key,16U)!=0)
-                valid=0;
-            flags|=8U;
-        } else if(strncmp(line,"APP_IV_HEX=",11U)==0) {
-            if((flags&16U)!=0U ||
-               clip46_poc_decode_hex(line+11U,cfg->app_iv,16U)!=0)
-                valid=0;
-            flags|=16U;
-        } else valid=0;
-        if(!valid) break;
+    flags = 0U; valid = 1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        len = strlen(line);
+        if (len == sizeof(line)-1U && line[len-1U] != '\n') {
+            valid = 0; break;
+        }
+        while (len > 0U && (line[len-1U] == '\n' || line[len-1U] == '\r'))
+            line[--len] = '\0';
+        if (line[0] == '#' || line[0] == '\0') continue;
+        if (strncmp(line, "KEY_HEX=", 8U) == 0) {
+            if ((flags & 1U) != 0U ||
+                clip46_poc_decode_hex(line+8U, cfg->key, 16U) != 0) valid = 0;
+            flags |= 1U;
+        } else if (strncmp(line, "CONTEXT_HEX=", 12U) == 0) {
+            if ((flags & 2U) != 0U ||
+                clip46_poc_decode_hex(line+12U, cfg->context, 51U) != 0)
+                valid = 0;
+            flags |= 2U;
+        } else valid = 0;
+        if (!valid) break;
     }
-    if(ferror(fp)) valid=0;
+    if (ferror(fp)) valid = 0;
     fclose(fp);
-    if((flags&7U)!=7U ||
-       ((flags&24U)!=0U && (flags&24U)!=24U))
-        valid=0;
-    cfg->has_app_material = ((flags&24U)==24U) ? 1 : 0;
-    clip46_poc_wipe(line,sizeof(line));
-    if(!valid) {clip46_poc_wipe(cfg,sizeof(*cfg));return -1;}
+    if (flags != 3U) valid = 0;
+    clip46_poc_wipe(line, sizeof(line));
+    if (!valid) { clip46_poc_wipe(cfg, sizeof(*cfg)); return -1; }
     return 0;
 }

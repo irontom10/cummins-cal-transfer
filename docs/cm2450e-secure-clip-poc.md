@@ -1,3 +1,9 @@
+# CURRENT IMPLEMENTATION NOTICE (experimental branch)
+
+**The section below describes the earlier PoC and standalone OpenSSL provider, not the latest integrated module.** Read [the current P-256 ECDH increment](cm2450e-secure-clip-ecdh.md) for the fresh native key exchange, `02 04` decryption, new config requirements, safety gates, and up-to-date tests. `clip46_ecdh.c` remains an independent, non-integrated OpenSSL experiment.
+
+---
+
 # Experimental GTIS4.6 / CM2450E secure CLIP handshake PoC
 
 **Branch:** `experiment/cm2450e-secure-clip-poc`

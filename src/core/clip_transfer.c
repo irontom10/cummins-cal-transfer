@@ -18,6 +18,7 @@
 #include "echo_transfer.h"
 #include "clip_crypto.h"
 #include "clip46_poc_secure.h"
+#include "clip46_p256.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
 #include "ct_platform.h"
@@ -755,24 +756,39 @@ clip_send_only(struct pull_ctx *ctx,
  * Therefore a 02 04 reply is logged as a response, NEVER proof of a
  * validated authenticated session. No calibration/status/read/write follows.
  */
+/*
+ * GTIS4.6 experimental read-only authentication, never an unlock bypass.
+ * 02 04 decryption and P-256 ECDH do NOT by themselves prove ECM auth.
+ * No descriptor/memory transfer or program operation can leave this path.
+ */
 static int
 clip46_experimental_auth(struct pull_ctx *ctx,
                          const clip_u8 *seed_pdu, size_t seed_len)
 {
     struct clip_secure_seed_reply seed;
     struct clip46_poc_config config;
+    struct clip46_p256_keypair keypair;
     const char *path;
     clip_u8 plaintext[CLIP46_PLAINTEXT_BYTES];
-    clip_u8 iv[16];
+    clip_u8 envelope_iv[16];
     clip_u8 app[CLIP46_APP_BYTES];
     clip_u8 reply[256];
-    size_t reply_len;
+    clip_u8 reply_plain[160];
+    clip_u8 shared_secret[32];
+    clip_u8 app_iv[16], app_key[16];
+    size_t reply_len, reply_plain_len;
     int rc;
 
     memset(&config, 0, sizeof(config));
+    memset(&keypair, 0, sizeof(keypair));
     memset(plaintext, 0, sizeof(plaintext));
-    memset(iv, 0, sizeof(iv));
+    memset(envelope_iv, 0, sizeof(envelope_iv));
     memset(app, 0, sizeof(app));
+    memset(reply, 0, sizeof(reply));
+    memset(reply_plain, 0, sizeof(reply_plain));
+    memset(shared_secret, 0, sizeof(shared_secret));
+    memset(app_iv, 0, sizeof(app_iv));
+    memset(app_key, 0, sizeof(app_key));
     rc = PULL_ERR_CRYPTO;
 
     if (clip_parse_secure_seed_reply(seed_pdu, seed_len, &seed) != CLIP_OK) {
@@ -782,146 +798,141 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     path = getenv("CLIP46_POC_FILE");
     if (path == NULL || path[0] == '\0') {
         set_last_error_text(
-            "Experimental secure CLIP detected. Set CLIP46_POC_FILE to a "
-            "local KEY_HEX / CONTEXT_HEX / OPAQUE32_HEX file to test 02 03. "
-            "Nothing was sent beyond the seed request.");
+            "GTIS4.6 requires local CLIP46_POC_FILE with KEY_HEX and "
+            "CONTEXT_HEX; no 02 03 was sent.");
         return PULL_ERR_CRYPTO;
     }
     if (clip46_poc_load_config(path, &config) != 0) {
         set_last_error_text(
-            "Invalid CLIP46_POC_FILE: expected KEY_HEX (16 bytes), "
-            "CONTEXT_HEX (51 bytes), OPAQUE32_HEX (32 bytes). No auth sent.");
+            "Invalid CLIP46_POC_FILE. Only KEY_HEX and CONTEXT_HEX are "
+            "supported; captured OPAQUE32/APP fields are prohibited.");
         goto done;
     }
-    if (clip46_poc_random_iv(iv) != 0 ||
-        clip46_poc_build(seed.challenge, config.context, config.opaque32,
-                         plaintext) != 0 ||
-        clip46_poc_encrypt(config.key, iv, plaintext, app + 2U) != 0) {
-        set_last_error_text("Secure CLIP test encryption or IV generation failed.");
+    if (clip46_p256_generate(&keypair) != 0) {
+        set_last_error_text("GTIS4.6 failed to generate fresh P-256 keypair.");
+        goto done;
+    }
+    if (clip46_poc_random_iv(envelope_iv) != 0 ||
+        clip46_poc_build(seed.challenge, config.context,
+                         keypair.compressed_public + 1U, plaintext) != 0 ||
+        clip46_poc_encrypt(config.key, envelope_iv, plaintext,
+                           app + 2U) != 0) {
+        set_last_error_text("GTIS4.6 authentication envelope encryption failed.");
         goto done;
     }
     app[0] = 0x02U;
     app[1] = 0x03U;
-    report_progress(ctx, 7, "TEST: sending secure CLIP 02 03...");
+    report_progress(ctx, 7, "TEST: fresh GTIS4.6 02 03 P-256 authentication...");
     rc = clip_exchange(ctx, ctx->session_id, app, sizeof(app),
                        0x02U, 0x04U, 1,
                        reply, sizeof(reply), &reply_len,
                        CLIP_TIMEOUT_MS);
-    if (rc != PULL_OK) {
-        /* clip_exchange supplied the transport or negative-response error. */
-        goto done;
-    }
+    if (rc != PULL_OK) goto done;
     if (reply_len != 146U && reply_len != 162U) {
-        set_last_error_text(
-            "Secure CLIP received 02 04, but length was not 146 or 162.");
+        set_last_error_text("GTIS4.6 02 04 has unexpected envelope length.");
         rc = PULL_ERR_PROTOCOL;
         goto done;
     }
+    if (reply[0] != 0x02U || reply[1] != 0x04U ||
+        clip46_poc_decrypt_envelope(config.key, reply + 2U,
+                                   reply_len - 2U, reply_plain,
+                                   sizeof(reply_plain), &reply_plain_len) != 0 ||
+        (reply_plain_len != 124U && reply_plain_len != 136U)) {
+        set_last_error_text("GTIS4.6 02 04 decryption, padding or layout failed.");
+        rc = PULL_ERR_PROTOCOL;
+        goto done;
+    }
+    if (clip46_p256_ecdh_xonly(keypair.private_scalar,
+            reply_plain + reply_plain_len - 32U, shared_secret) != 0) {
+        set_last_error_text("GTIS4.6 peer X point invalid or ECDH failed.");
+        rc = PULL_ERR_CRYPTO;
+        goto done;
+    }
+    /* Exact experimentally verified split; no extra KDF. */
+    memcpy(app_iv, shared_secret, 16U);
+    memcpy(app_key, shared_secret + 16U, 16U);
+    clip46_poc_wipe(shared_secret, sizeof(shared_secret));
+    clip46_poc_wipe(&keypair, sizeof(keypair));
+
     /*
-     * Opt-in bench read experiment: do not interpret 02 04 alone as
-     * authentication success. First demand an actual positive response to
-     * a known read-only status query. Upload callers cannot enter this path.
+     * 02 04 is not an authenticated acknowledgement until full message
+     * semantics are validated. Optional single read-only 10 01 query
+     * remains blocked without an independently established connection ID.
      */
     if (ctx->clip46_read_only_workflow) {
         const char *enable;
         enable = getenv("CLIP46_POC_PULL");
         if (enable != NULL && strcmp(enable, "1") == 0) {
-            static const clip_u8 first_query_data[5] = {
+            static const clip_u8 query[5] = {
                 0x01U, 0x01U, 0x00U, 0x00U, 0x84U
             };
-            clip_u8 request[18];
-            clip_u8 response[256];
-            size_t encrypted_len;
-            size_t response_len;
-            char status[192];
-
-            /*
-             * This is a separate, per-session key/IV, NOT the reusable
-             * authentication AES key. The application cipher and ECDH
-             * derivation need a verified INSITE runtime trace.
-             * Never send the known-invalid cleartext query again.
-             */
-            /*
-             * The ID is negotiated outside the visible envelope bytes.
-             * Never reuse a guessed 02 04 byte as a valid connection.
-             */
-            {
-                const char *conn_id;
-                conn_id = getenv("CLIP46_POC_CONN_ID");
-                if (conn_id == NULL || conn_id[0] == '\0') {
-                    set_last_error_text(
-                        "GTIS4.6 first protected request: negotiated "
-                        "connection ID is unknown. Set CLIP46_POC_CONN_ID "
-                        "only when independently established for THIS "
-                        "session. No application request was sent.");
-                    rc = PULL_ERR_SECURE_POST_AUTH;
-                    goto done;
-                }
-            }
-            if (!config.has_app_material) {
+            clip_u8 request[18], response[256], response_plain[256];
+            size_t encrypted_len, response_len, decoded_len;
+            const char *conn_id;
+            conn_id = getenv("CLIP46_POC_CONN_ID");
+            if (conn_id == NULL || conn_id[0] == '\0') {
                 set_last_error_text(
-                    "GTIS4.6 02 04 received. Protected application "
-                    "query requires separately established session key "
-                    "and IV: add APP_KEY_HEX and APP_IV_HEX to your "
-                    "local CLIP46_POC_FILE after deriving values from "
-                    "THIS session. Reusing values from a previous INSITE "
-                    "session will not establish a valid encrypted session. "
-                    "No cleartext query or memory read was sent.");
+                    "GTIS4.6 ECDH derived fresh app material, but the "
+                    "connection ID is unverified. No app request sent.");
                 rc = PULL_ERR_SECURE_POST_AUTH;
                 goto done;
             }
+            memset(request, 0, sizeof(request));
+            memset(response, 0, sizeof(response));
+            memset(response_plain, 0, sizeof(response_plain));
             request[0] = 0x10U;
             request[1] = 0x01U;
-            if (clip46_poc_encrypt_application(config.app_key, config.app_iv,
-                    first_query_data, sizeof(first_query_data),
-                    request + 2U, sizeof(request) - 2U,
+            if (clip46_poc_encrypt_application(app_key, app_iv, query,
+                    sizeof(query), request + 2U, sizeof(request)-2U,
                     &encrypted_len) != 0 || encrypted_len != 16U) {
-                set_last_error_text(
-                    "Unable to encrypt GTIS4.6 application status request.");
+                set_last_error_text("GTIS4.6 protected query encryption failed.");
                 rc = PULL_ERR_CRYPTO;
                 goto done;
             }
-            sprintf(status,
-                    "TEST: sending protected status query (connection %02X)...",
-                    (unsigned int)ctx->session_id);
-            report_progress(ctx, 8, status);
-            rc = clip_exchange(ctx, ctx->session_id,
-                               request, encrypted_len + 2U,
-                               0x01U, 0x01U, 1,
+            report_progress(ctx, 8, "TEST: sending one protected status query...");
+            rc = clip_exchange(ctx, ctx->session_id, request,
+                               encrypted_len + 2U, 0x01U, 0x01U, 1,
                                response, sizeof(response), &response_len,
                                CLIP_TIMEOUT_MS);
             clip46_poc_wipe(request, sizeof(request));
-            if (rc != PULL_OK)
-                goto done;
+            if (rc != PULL_OK) goto done;
             if (response_len < 18U ||
-                ((response_len - 2U) % 16U) != 0U) {
+                (response_len-2U) % 16U != 0U ||
+                clip46_poc_decrypt_cbc(app_key, app_iv, response+2U,
+                     response_len-2U, response_plain, sizeof(response_plain),
+                     &decoded_len) != 0 || decoded_len == 0U) {
                 set_last_error_text(
-                    "Secure application response is not 01 01 plus "
-                    "whole AES blocks; session cipher is unverified.");
+                    "GTIS4.6 encrypted status reply failed CBC validation.");
                 rc = PULL_ERR_PROTOCOL;
-                goto done;
+            } else {
+                set_last_error_text(
+                    "GTIS4.6 protected reply decrypted. App response "
+                    "semantics and negotiated connection ID remain "
+                    "unverified; calibration readback stays disabled.");
+                rc = PULL_ERR_SECURE_POST_AUTH;
             }
-            set_last_error_text(
-                "GTIS4.6 protected status query received an encrypted "
-                "response. The session reply still needs verified "
-                "decryption and key agreement before descriptor readback. "
-                "No calibration memory read or mode change attempted.");
-            rc = PULL_ERR_SECURE_POST_AUTH;
+            clip46_poc_wipe(response, sizeof(response));
+            clip46_poc_wipe(response_plain, sizeof(response_plain));
             goto done;
         }
     }
     set_last_error_text(
-        "EXPERIMENTAL GTIS4.6: sent 02 03 and received 02 04. "
-        "Set CLIP46_POC_PULL=1 in the read-only workflow to test "
-        "status/descriptor/memory queries. No calibration access or "
-        "programming was attempted.");
+        "GTIS4.6 02 04 decrypted and fresh P-256 ECDH derived. "
+        "Context/ack semantics and negotiated connection ID remain "
+        "unverified. No application request or calibration readback sent.");
     rc = PULL_ERR_SECURE_POST_AUTH;
 
 done:
     clip46_poc_wipe(&config, sizeof(config));
+    clip46_poc_wipe(&keypair, sizeof(keypair));
     clip46_poc_wipe(plaintext, sizeof(plaintext));
-    clip46_poc_wipe(iv, sizeof(iv));
+    clip46_poc_wipe(envelope_iv, sizeof(envelope_iv));
     clip46_poc_wipe(app, sizeof(app));
+    clip46_poc_wipe(reply, sizeof(reply));
+    clip46_poc_wipe(reply_plain, sizeof(reply_plain));
+    clip46_poc_wipe(shared_secret, sizeof(shared_secret));
+    clip46_poc_wipe(app_iv, sizeof(app_iv));
+    clip46_poc_wipe(app_key, sizeof(app_key));
     return rc;
 }
 

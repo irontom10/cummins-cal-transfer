@@ -55,6 +55,27 @@ int main(void)
         assert(cipher_len == 16U);
         assert(memcmp(query_cipher, query_want, 16U) == 0);
     }
+    /* Synthetic AES envelope roundtrip: both observed response sizes. */
+    {
+        unsigned char sample[144], body[160], decoded[144];
+        size_t ct_len, pt_len;
+        unsigned int n, k;
+        for (k = 0U; k < 2U; ++k) {
+            n = k == 0U ? 124U : 136U;
+            for (i = 0U; i < n; ++i) sample[i] = (unsigned char)(i ^ 0x5aU);
+            for (i = 0U; i < 16U; ++i) iv[i] = (unsigned char)(i+16U);
+            memcpy(body, iv, 16U);
+            assert(clip46_poc_encrypt_application(key, iv, sample, (size_t)n,
+                body+16U, sizeof(body)-16U, &ct_len) == 0);
+            assert(clip46_poc_decrypt_envelope(key, body, 16U+ct_len, decoded,
+                sizeof(decoded), &pt_len) == 0);
+            assert(pt_len == (size_t)n);
+            assert(memcmp(sample, decoded, pt_len) == 0);
+            body[16U+ct_len-1U] ^= 0x7fU;
+            assert(clip46_poc_decrypt_envelope(key, body, 16U+ct_len, decoded,
+                sizeof(decoded), &pt_len) != 0);
+        }
+    }
     puts("CLIP46 C89 AES-CBC synthetic vector passed");
     return 0;
 }

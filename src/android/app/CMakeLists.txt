@@ -15,6 +15,7 @@ add_library(caltransfer SHARED
     ../../core/echo_transfer.c
     ../../core/clip_crypto.c
     ../../core/clip46_poc_secure.c
+    ../../core/clip46_p256.c
     ../../core/clip_cal.c
     ../../core/ccal_crc.c
 )

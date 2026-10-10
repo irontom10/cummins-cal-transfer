@@ -1,0 +1,41 @@
+name: GTIS4.6 P-256 experimental checks
+on:
+  push:
+    branches:
+      - experiment/cm2450e-secure-clip-poc
+  workflow_dispatch:
+jobs:
+  linux-c89:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run AES / P-256 synthetic tests
+        run: |
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_poc_test.c src/core/clip46_poc_secure.c -o /tmp/clip46_aes
+          /tmp/clip46_aes
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_p256_test.c src/core/clip46_poc_secure.c src/core/clip46_p256.c -o /tmp/clip46_p256
+          /tmp/clip46_p256
+  windows-x86:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Compile and run x86 C native tests
+        shell: cmd
+        run: |
+          cl /nologo /W3 /TC /Isrc\core tests\clip46_p256_test.c src\core\clip46_p256.c src\core\clip46_poc_secure.c /Fe:clip46_p256_test.exe /link advapi32.lib
+          clip46_p256_test.exe
+          cl /nologo /W3 /TC /Isrc\core tests\clip46_poc_test.c src\core\clip46_poc_secure.c /Fe:clip46_aes_test.exe /link advapi32.lib
+          clip46_aes_test.exe
+  android-ndk-c90:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-compile native crypto for Android arm64
+        run: |
+          NDK=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          "$CC" -std=c90 -Wall -Wextra -Isrc/core -c src/core/clip46_poc_secure.c -o /tmp/clip46_aes_android.o
+          "$CC" -std=c90 -Wall -Wextra -Isrc/core -c src/core/clip46_p256.c -o /tmp/clip46_p256_android.o
