@@ -50,7 +50,6 @@
 #define PULL_ERR_UPLOAD                 -112
 #define PULL_ERR_LEGACY_TX_BLOCKED      -113
 #define PULL_ERR_POST_VERIFY            -114
-#define PULL_ERR_SECURE_AUTH            -115
 #define PULL_ERR_SECURE_POST_AUTH       -116
 
 /* Internal non-error result from the CLIP open probe. */
