@@ -14,11 +14,11 @@
     <PublishTrimmed>false</PublishTrimmed>
 
     <AssemblyName>CalibrationTransfer</AssemblyName>
-    <ApplicationIcon>caltool.ico</ApplicationIcon>
+    <ApplicationIcon>..\caltool.ico</ApplicationIcon>
     <PackageLicenseExpression>GPL-2.0-only</PackageLicenseExpression>
 
-    <BaseOutputPath>..\..\build\dotnet\bin\</BaseOutputPath>
-    <BaseIntermediateOutputPath>..\..\build\dotnet\obj\</BaseIntermediateOutputPath>
+    <BaseOutputPath>..\..\..\build\dotnet\bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>..\..\..\build\dotnet\obj\</BaseIntermediateOutputPath>
 
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
@@ -26,10 +26,10 @@
 
   <ItemGroup>
     <!-- build.bat creates this before dotnet publish runs. -->
-    <EmbeddedResource Include="..\..\build\native\rp1210scan.dll">
+    <EmbeddedResource Include="..\..\..\build\native\rp1210scan.dll">
       <LogicalName>rp1210scan.dll</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="..\..\build\native\ctconfig.dll">
+    <EmbeddedResource Include="..\..\..\build\native\ctconfig.dll">
       <LogicalName>ctconfig.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>

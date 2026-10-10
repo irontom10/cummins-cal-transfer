@@ -30,11 +30,6 @@ jobs:
           }
           "RELEASE_TAG=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
       - name: Build Windows x86
         shell: cmd
         run: build.bat
