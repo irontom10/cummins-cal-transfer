@@ -18,6 +18,17 @@ int clip46_poc_encrypt(const unsigned char key[16],
                        const unsigned char iv[16],
                        const unsigned char plaintext[CLIP46_PLAINTEXT_BYTES],
                        unsigned char body[CLIP46_BODY_BYTES]);
+/* Generic AES-128-CBC/PKCS#7 envelope for application data.
+ * Caller MUST supply an independently established session key and IV;
+ * the reusable auth key does not qualify as a session key.
+ */
+int clip46_poc_encrypt_application(const unsigned char key[16],
+                                   const unsigned char iv[16],
+                                   const unsigned char *plain,
+                                   size_t plain_len,
+                                   unsigned char *cipher,
+                                   size_t capacity,
+                                   size_t *cipher_len);
 int clip46_poc_build(const unsigned char challenge[16],
                      const unsigned char context51[51],
                      const unsigned char opaque32[32],
