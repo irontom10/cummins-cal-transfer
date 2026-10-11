@@ -259,14 +259,27 @@ int clip46_poc_decrypt_envelope(const unsigned char key[16],
 }
 
 int clip46_poc_build(const unsigned char challenge[16],
-                     const unsigned char context51[51],
-                     const unsigned char opaque32[32],
-                     unsigned char plaintext[CLIP46_PLAINTEXT_BYTES])
+                      const unsigned char context51[51],
+                      const unsigned char opaque32[32],
+                      unsigned char plaintext[CLIP46_PLAINTEXT_BYTES])
 {
     if (!challenge || !context51 || !opaque32 || !plaintext) return -1;
     memcpy(plaintext,challenge,16U);
     memcpy(plaintext+16U,context51,51U);
     memcpy(plaintext+67U,opaque32,32U);
+    return 0;
+}
+/* Evidence-documented rule; see clip46_poc_secure.h. Rejects slots outside
+ * the observed 0x03..0x0B window instead of guessing an ID. */
+int clip46_poc_derive_connection_id(unsigned char slot,
+                                    unsigned char *connection_id)
+{
+    unsigned char id;
+    if (connection_id == NULL) return -1;
+    if (slot < 0x03U || slot > 0x0BU) return -1;
+    id = (unsigned char)(0x0EU - slot);
+    if (id < 0x03U || id > 0x0BU) return -1;
+    *connection_id = id;
     return 0;
 }
 static int nibble(int c)

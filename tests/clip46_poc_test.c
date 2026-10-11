@@ -76,6 +76,27 @@ int main(void)
                 sizeof(decoded), &pt_len) != 0);
         }
     }
+    /* Connection-ID derivation rule: cid = 0x0E - slot, observed window
+     * only (slot 0x03 -> 0x0B first session, 0x04 -> 0x0A second).
+     * Out-of-window slots must be rejected, not guessed.
+     */
+    {
+        unsigned char cid;
+        cid = 0U;
+        assert(clip46_poc_derive_connection_id(0x03U, &cid) == 0);
+        assert(cid == 0x0BU);
+        cid = 0U;
+        assert(clip46_poc_derive_connection_id(0x04U, &cid) == 0);
+        assert(cid == 0x0AU);
+        cid = 0U;
+        assert(clip46_poc_derive_connection_id(0x05U, &cid) == 0);
+        assert(cid == 0x09U);
+        assert(clip46_poc_derive_connection_id(0x02U, &cid) != 0);
+        assert(clip46_poc_derive_connection_id(0x0CU, &cid) != 0);
+        assert(clip46_poc_derive_connection_id(0x00U, &cid) != 0);
+        assert(clip46_poc_derive_connection_id(0xFFU, &cid) != 0);
+        assert(clip46_poc_derive_connection_id(0x03U, NULL) != 0);
+    }
     puts("CLIP46 C89 AES-CBC synthetic vector passed");
     return 0;
 }

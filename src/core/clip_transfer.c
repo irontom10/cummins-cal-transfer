@@ -116,6 +116,14 @@ struct pull_meta {
 struct pull_ctx {
     struct j1939_transport *transport;
     clip_u8 session_id;
+    /*
+     * ECM-side frame byte 3 for this session. In the captured GTIS4.6
+     * sessions the ECM addresses every session frame to a per-connection
+     * slot (0x03 for the first observed session, 0x04 for the second);
+     * the tool's first protected 10 01 used 0x0E - slot as its outer
+     * connection ID. Kept separately from session_id, which is byte 4.
+     */
+    clip_u8 ecm_slot;
     unsigned int wire_slot;
     int tolerate_negative;
     int clip46_read_only_workflow;
@@ -580,6 +588,14 @@ clip_exchange(struct pull_ctx *ctx,
         if (incoming[0] != 0x81U)
             continue;
 
+        /*
+         * Byte 3 of ECM frames carries this session's connection slot in
+         * every observed GTIS4.6 capture (constant within a session).
+         * Record it before any early-return branch so the secure path can
+         * derive the application connection ID from the freshest frame.
+         */
+        ctx->ecm_slot = incoming[3];
+
         n_app = incoming_len - 5U;
 
         /*
@@ -778,6 +794,7 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     clip_u8 app_iv[16], app_key[16];
     size_t reply_len, reply_plain_len;
     int rc;
+    int id_derived;
 
     memset(&config, 0, sizeof(config));
     memset(&keypair, 0, sizeof(keypair));
@@ -790,6 +807,7 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     memset(app_iv, 0, sizeof(app_iv));
     memset(app_key, 0, sizeof(app_key));
     rc = PULL_ERR_CRYPTO;
+    id_derived = 0;
 
     if (clip_parse_secure_seed_reply(seed_pdu, seed_len, &seed) != CLIP_OK) {
         set_last_error_text("Invalid GTIS4.6 02 02 challenge.");
@@ -855,9 +873,77 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     clip46_poc_wipe(&keypair, sizeof(keypair));
 
     /*
+     * Negotiate the application connection ID for the first protected
+     * request from the ECM frame slot (rule and evidence in
+     * clip46_poc_secure.h). ctx->session_id currently holds the 02 04's
+     * byte 4 (constant 0x08 in every capture), which is transport
+     * bookkeeping only and is NOT the application ID.
+     */
+    {
+        unsigned char derived_id;
+        char note[192];
+
+        if (clip46_poc_derive_connection_id(ctx->ecm_slot, &derived_id) == 0) {
+            /*
+             * Diagnostic cross-check only: report where the derived byte
+             * occurs in the decrypted 02 04 body outside the trailing
+             * 32-byte peer X coordinate. Metadata (offsets and a count)
+             * alone; no plaintext is exposed, and presence is not yet
+             * proof of the field's meaning until the offset is pinned
+             * across sessions.
+             */
+            size_t scan_len = reply_plain_len - 32U;
+            size_t i;
+            unsigned long hits;
+            unsigned int shown;
+
+            hits = 0UL;
+            shown = 0U;
+            for (i = 0U; i < scan_len; ++i) {
+                if (reply_plain[i] == derived_id) {
+                    if (shown == 0U)
+                        sprintf(note,
+                                "GTIS4.6 slot 0x%02X derives cid 0x%02X; "
+                                "02 04 plaintext offsets",
+                                (unsigned)ctx->ecm_slot,
+                                (unsigned)derived_id);
+                    if (shown < 4U) {
+                        sprintf(note + strlen(note),
+                                " %lu",
+                                (unsigned long)i);
+                        shown++;
+                    }
+                    hits++;
+                }
+            }
+            if (shown == 0U)
+                sprintf(note,
+                        "GTIS4.6 slot 0x%02X derives cid 0x%02X; byte "
+                        "absent from decrypted 02 04 body",
+                        (unsigned)ctx->ecm_slot,
+                        (unsigned)derived_id);
+            else
+                sprintf(note + strlen(note),
+                        " (%lu total)",
+                        hits);
+            report_progress(ctx, 8, note);
+            ctx->session_id = derived_id;
+            id_derived = 1;
+        } else {
+            sprintf(note,
+                    "GTIS4.6 ECM slot 0x%02X outside observed range; "
+                    "connection ID not derived",
+                    (unsigned)ctx->ecm_slot);
+            report_progress(ctx, 8, note);
+        }
+    }
+
+    /*
      * 02 04 is not an authenticated acknowledgement until full message
      * semantics are validated. Optional single read-only 10 01 query
-     * remains blocked without an independently established connection ID.
+     * uses the derived connection ID; CLIP46_POC_CONN_ID still overrides
+     * it for independent verification, and without either no app request
+     * is sent.
      */
     if (ctx->clip46_read_only_workflow) {
         const char *enable;
@@ -870,10 +956,25 @@ clip46_experimental_auth(struct pull_ctx *ctx,
             size_t encrypted_len, response_len, decoded_len;
             const char *conn_id;
             conn_id = getenv("CLIP46_POC_CONN_ID");
-            if (conn_id == NULL || conn_id[0] == '\0') {
+            if (conn_id != NULL && conn_id[0] != '\0') {
+                char *endp;
+                unsigned long n;
+                n = strtoul(conn_id, &endp, 0);
+                if (endp == conn_id || *endp != '\0' ||
+                    n == 0UL || n > 255UL) {
+                    set_last_error_text(
+                        "CLIP46_POC_CONN_ID must be an integer 1..255.");
+                    rc = PULL_ERR_ARGUMENT;
+                    goto done;
+                }
+                /* Explicit local verification override wins. */
+                ctx->session_id = (clip_u8)n;
+            } else if (!id_derived) {
                 set_last_error_text(
                     "GTIS4.6 ECDH derived fresh app material, but the "
-                    "connection ID is unverified. No app request sent.");
+                    "connection ID was not derived (unexpected ECM slot) "
+                    "and no CLIP46_POC_CONN_ID override is set. "
+                    "No app request sent.");
                 rc = PULL_ERR_SECURE_POST_AUTH;
                 goto done;
             }
@@ -889,7 +990,7 @@ clip46_experimental_auth(struct pull_ctx *ctx,
                 rc = PULL_ERR_CRYPTO;
                 goto done;
             }
-            report_progress(ctx, 8, "TEST: sending one protected status query...");
+            report_progress(ctx, 9, "TEST: sending one protected status query...");
             rc = clip_exchange(ctx, ctx->session_id, request,
                                encrypted_len + 2U, 0x01U, 0x01U, 1,
                                response, sizeof(response), &response_len,
@@ -906,8 +1007,8 @@ clip46_experimental_auth(struct pull_ctx *ctx,
                 rc = PULL_ERR_PROTOCOL;
             } else {
                 set_last_error_text(
-                    "GTIS4.6 protected reply decrypted. App response "
-                    "semantics and negotiated connection ID remain "
+                    "GTIS4.6 protected reply decrypted with the derived "
+                    "connection ID. App response semantics remain "
                     "unverified; calibration readback stays disabled.");
                 rc = PULL_ERR_SECURE_POST_AUTH;
             }
@@ -918,7 +1019,8 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     }
     set_last_error_text(
         "GTIS4.6 02 04 decrypted and fresh P-256 ECDH derived. "
-        "Context/ack semantics and negotiated connection ID remain "
+        "Connection ID derived from the ECM frame slot (evidence-based "
+        "rule; see clip46_poc_secure.h). Context/ack semantics remain "
         "unverified. No application request or calibration readback sent.");
     rc = PULL_ERR_SECURE_POST_AUTH;
 

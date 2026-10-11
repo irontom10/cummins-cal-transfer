@@ -34,6 +34,25 @@ int clip46_poc_build(const unsigned char challenge[16],
                      const unsigned char context51[51],
                      const unsigned char public_x[32],
                      unsigned char plaintext[CLIP46_PLAINTEXT_BYTES]);
+/*
+ * Derive the first-protected-request connection ID from the ECM frame slot.
+ *
+ * Live evidence (combined INSITE debugger + passive bus capture,
+ * 2026-10-11, two consecutive sessions against one CM2450E):
+ *
+ *   session   ECM frame b3 ("slot")   first 10 01 outer b4
+ *     1             0x03                    0x0B
+ *     2             0x04                    0x0A
+ *
+ * Ten historical first-session INSITE traces also used 0x0B, and the
+ * ECM 02 04 outer b4 is a constant 0x08 in every observed session.
+ * The rule connection_id = 0x0E - slot reproduces all observations,
+ * adapts to the connection count, and uses no source-address mapping.
+ * It remains a two-live-session rule pending an offset-pinned plaintext
+ * confirmation inside the decrypted 02 04.
+ */
+int clip46_poc_derive_connection_id(unsigned char slot,
+                                    unsigned char *connection_id);
 int clip46_poc_decode_hex(const char *hex, unsigned char *output, size_t len);
 int clip46_poc_random_iv(unsigned char iv[16]);
 void clip46_poc_wipe(void *buffer, size_t n);

@@ -25,15 +25,45 @@ The platform shim is modified to force an explicit checked OS RNG callback:
 CryptoAPI on Windows (x86) and `/dev/urandom` on Linux/Android. No x64 OpenSSL
 binaries are required by Windows.
 
+## Application connection ID — evidence and automatic derivation
+
+A combined capture (INSITE debugger timeline + passive RP1210 bus sniff, one
+CM2450E, two consecutive read-only sessions, 2026-10-11) resolved the
+previously open connection-ID question:
+
+| session | tool SA | ECM frame byte 3 ("slot") | first `10 01` outer byte 4 |
+|---|---|---|---|
+| 1 | 0xF1 | 0x03 (every ECM frame) | 0x0B |
+| 2 | 0xF9 | 0x04 (every ECM frame) | 0x0A |
+
+The ECM's `02 04` outer byte 4 is a constant 0x08 in every observed session
+(including this tool's own SA 0xFA bench run) and is transport bookkeeping,
+not the application ID. The tool's byte 4 is a per-opcode value (00/02/...)
+everywhere **except** the first protected `10 01`, which carries the
+negotiated connection ID exactly once. Ten historical first-session INSITE
+traces also used 0x0B.
+
+The implemented rule is `connection_id = 0x0E - slot`, with the slot taken
+from the ECM frames of the live session (byte 3, constant within a session).
+It reproduces every observation, adapts to the connection count, and uses no
+source-address mapping or hardcoded 0x0A/0x0B. Slots outside the observed
+0x03..0x0B window are rejected rather than guessed, and `CLIP46_POC_CONN_ID`
+still overrides the derivation for independent verification.
+
+After the `02 04` decrypts and ECDH completes, the tool reports the observed
+slot, the derived ID, and the offsets where that byte occurs in the decrypted
+`02 04` body outside the trailing 32-byte peer X (metadata only). Pinning a
+stable plaintext offset across sessions remains open; until then the slot rule
+is a two-live-session rule that matched all available evidence.
+
 ## Limitations and strict gates
 
 - The 51-byte context is still supplied locally; dynamic fields need live analysis.
 - A syntactically valid/decrypted `02 04` does not prove that the ECM accepted
   the authentication or that an application session was successfully negotiated.
-- The application connection ID is still unresolved. No automatic extraction
-  from outer envelope bytes is permitted. A single opt-in protected status query
-  requires both `CLIP46_POC_PULL=1` and a session-correct
-  `CLIP46_POC_CONN_ID` override from independent evidence.
+- The connection ID is now derived from the ECM frame slot as described above.
+  The optional protected status query still requires `CLIP46_POC_PULL=1`;
+  `CLIP46_POC_CONN_ID` remains supported as an explicit verification override.
 - Even if a protected `10 01` reply decrypts, response semantics remain
   unverified. The routine always returns a non-success result; descriptor
   reads, memory readback, unlock, mode changes and programming are inaccessible.
@@ -75,13 +105,16 @@ use synthetic scalars, not captured traces.
 ## Next authorized bench run
 
 On a stationary, isolated authorized ECM, run the ordinary read workflow
-with only local `KEY_HEX` and `CONTEXT_HEX` configured; leave
-`CLIP46_POC_PULL` unset. Capture the J1939 handshake and the tool's
-non-success status; do not log private keys or derived AES material.
+with only local `KEY_HEX` and `CONTEXT_HEX` configured and
+`CLIP46_POC_PULL=1`; leave `CLIP46_POC_CONN_ID` unset so the derived ID is
+exercised. Run the passive bus sniffer from `insite-clip-id-tracer`
+(`build\clip_bus_sniff.exe`) alongside to capture the handshake, and compare
+the tool's first `10 01` outer byte with the derived value. Record the
+progress note listing the 02 04 plaintext offsets of the derived byte; a
+stable offset across sessions upgrades the rule from slot-derived to
+plaintext-confirmed. Do not log private keys or derived AES material.
 Verify the `02 03` public X changes across fresh sessions and assess the
-51-byte context structure and response semantics. Do not enable the
-protected status query until the negotiated application connection ID
-has been independently identified for that session.
+51-byte context structure and response semantics.
 
 ## Outstanding library edge-case
 
