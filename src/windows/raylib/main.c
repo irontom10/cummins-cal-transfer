@@ -6,20 +6,16 @@
  *
  * This target is x86 because current Windows RP1210 vendor DLLs are x86.
  */
-#define WIN32_LEAN_AND_MEAN
 #define CT_CONFIG_EXPORTS
-#include <windows.h>
-#include <commdlg.h>
-#include <process.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include "raylib.h"
 #include "rp1210clip.h"
 #include "config_store.h"
 #include "ct_platform.h"
+#include "native_bridge.h"
 
 #define WIDTH 1000
 #define HEIGHT 760
@@ -30,24 +26,6 @@
 enum { COMBO_NONE, COMBO_API, COMBO_DEVICE, COMBO_BAUD };
 enum { MODAL_NONE, MODAL_CONFIRM, MODAL_RESULT, MODAL_WARNING };
 enum { FOCUS_NONE, FOCUS_TOOL, FOCUS_ECM };
-
-struct transfer_request {
-    char api[64];
-    char path[PATH_CAP];
-    int device_id;
-    int baud;
-    unsigned char tool_sa;
-    unsigned char ecm_sa;
-    int upload;
-};
-
-struct worker_snapshot {
-    int percent;
-    int done;
-    int result;
-    char status[STATUS_CAP];
-    char error[STATUS_CAP];
-};
 
 struct app_state {
     RP1210_DEVICE devices[RP1210_MAX_DEVICES];
@@ -77,10 +55,7 @@ struct app_state {
     char modal_title[96];
     char modal_text[1600];
     char status[STATUS_CAP];
-    struct transfer_request request;
-    HANDLE worker;
-    CRITICAL_SECTION worker_lock;
-    struct worker_snapshot shared;
+    struct ct_transfer_request request;
 };
 
 static struct app_state g;
@@ -346,85 +321,16 @@ refresh_devices(int preserve)
     }
 }
 
-static int
-choose_path(int upload, char *path, DWORD cap)
-{
-    OPENFILENAMEA dialog;
-    static const char filter[] =
-        "Calibration (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
-    memset(&dialog, 0, sizeof(dialog));
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = (HWND)GetWindowHandle();
-    dialog.lpstrFile = path;
-    dialog.nMaxFile = cap;
-    dialog.lpstrFilter = filter;
-    dialog.lpstrDefExt = "ccal";
-    dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
-    if (upload) {
-        path[0] = '\0';
-        dialog.Flags |= OFN_FILEMUSTEXIST;
-        return GetOpenFileNameA(&dialog) != 0;
-    }
-    copy_text(path, "ecm-calibration.ccal", cap);
-    dialog.Flags |= OFN_OVERWRITEPROMPT;
-    return GetSaveFileNameA(&dialog) != 0;
-}
-
-static void RP1210_CALL
-progress_callback(int percent, const char *status)
-{
-    EnterCriticalSection(&g.worker_lock);
-    g.shared.percent = clamp_int(percent, 0, 100);
-    copy_text(g.shared.status, status, sizeof(g.shared.status));
-    LeaveCriticalSection(&g.worker_lock);
-}
-
-static unsigned __stdcall
-transfer_worker(void *unused)
-{
-    int rc;
-    char error[STATUS_CAP];
-    (void)unused;
-    if (g.request.upload) {
-        rc = rp1210_upload_ccal(g.request.api, g.request.device_id,
-                                g.request.baud, g.request.tool_sa,
-                                g.request.ecm_sa, g.request.path,
-                                progress_callback);
-    } else {
-        rc = rp1210_pull_ccal(g.request.api, g.request.device_id,
-                              g.request.baud, g.request.tool_sa,
-                              g.request.ecm_sa, g.request.path,
-                              progress_callback);
-    }
-    error[0] = '\0';
-    if (rc != 0)
-        rp1210_get_last_error(error, sizeof(error));
-    EnterCriticalSection(&g.worker_lock);
-    g.shared.result = rc;
-    g.shared.done = 1;
-    copy_text(g.shared.error, error, sizeof(g.shared.error));
-    LeaveCriticalSection(&g.worker_lock);
-    return 0U;
-}
-
 static void
 start_worker(void)
 {
-    unsigned thread_id;
-    memset(&g.shared, 0, sizeof(g.shared));
-    copy_text(g.shared.status,
-              g.request.upload ? "Verifying calibration CRC..." :
-                                 "Connecting to ECM...",
-              sizeof(g.shared.status));
     g.busy = 1;
     g.modal = MODAL_NONE;
     g.open_combo = COMBO_NONE;
-    g.worker = (HANDLE)_beginthreadex(NULL, 0, transfer_worker,
-                                       NULL, 0, &thread_id);
-    if (g.worker == NULL) {
+    if (ct_native_begin(&g.request) != 0) {
         g.busy = 0;
         open_message(MODAL_WARNING, "Transfer failed",
-                     "Could not create the transfer worker thread.");
+                     "Could not create the native transfer worker.");
     }
 }
 
@@ -454,7 +360,9 @@ prepare_transfer(int upload)
     g.request.tool_sa = tool_sa;
     g.request.ecm_sa = ecm_sa;
     g.request.upload = upload;
-    if (!choose_path(upload, g.request.path, sizeof(g.request.path)))
+    if (!ct_native_choose_path(upload, g.request.path,
+                               (unsigned long)sizeof(g.request.path),
+                               GetWindowHandle()))
         return;
     save_config();
     if (upload) {
@@ -469,18 +377,14 @@ prepare_transfer(int upload)
 static void
 poll_worker(void)
 {
-    struct worker_snapshot snapshot;
+    struct ct_transfer_status snapshot;
     char message[1600];
     if (!g.busy)
         return;
-    EnterCriticalSection(&g.worker_lock);
-    snapshot = g.shared;
-    LeaveCriticalSection(&g.worker_lock);
+    ct_native_snapshot(&snapshot);
     if (!snapshot.done)
         return;
-    WaitForSingleObject(g.worker, INFINITE);
-    CloseHandle(g.worker);
-    g.worker = NULL;
+    ct_native_join();
     g.busy = 0;
     g.result_upload = g.request.upload;
     g.result_ok = snapshot.result == 0;
@@ -893,9 +797,7 @@ draw_screen(void)
 
     box(rect(33, 619, 934, 111), 0x152136FF, 0x2F4159FF);
     DrawText("TRANSFER STATUS", 58, 637, 18, paint(0xB8D0F0FF));
-    EnterCriticalSection(&g.worker_lock);
-    snapshot = g.shared;
-    LeaveCriticalSection(&g.worker_lock);
+    ct_native_snapshot(&snapshot);
     progress = g.busy ? snapshot.percent : (g.result_ok ? 100 : 0);
     progress = clamp_int(progress, 0, 100);
     DrawRectangleRounded(rect(58, 676, 870, 14), 0.4f, 8,
@@ -915,24 +817,19 @@ draw_screen(void)
     EndDrawing();
 }
 
-int WINAPI
-WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line,
-        int show_command)
+int
+ct_raylib_main(void)
 {
     int should_close;
-    (void)instance;
-    (void)previous;
-    (void)command_line;
-    (void)show_command;
     memset(&g, 0, sizeof(g));
     g.selected_api = -1;
     g.selected_baud = 2;
     copy_text(g.status, "Ready.", sizeof(g.status));
-    InitializeCriticalSection(&g.worker_lock);
+    ct_native_init();
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(WIDTH, HEIGHT, "ECM Calibration Transfer - raylib");
     if (!IsWindowReady()) {
-        DeleteCriticalSection(&g.worker_lock);
+        ct_native_shutdown();
         return 1;
     }
     SetExitKey(KEY_NULL);
@@ -957,6 +854,6 @@ WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line,
     if (g.config_loaded)
         ct_config_close();
     CloseWindow();
-    DeleteCriticalSection(&g.worker_lock);
+    ct_native_shutdown();
     return 0;
 }
