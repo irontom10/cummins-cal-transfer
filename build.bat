@@ -223,6 +223,10 @@ echo Build complete ^(%FRONTEND%^):
 echo   build\app\CalibrationTransfer.exe
 echo   build\tools\crc_call.exe
 echo.
+if /I "%FRONTEND%"=="win-api-tiny" (
+    echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
+    echo       Choose build.bat win-api for the compact standalone EXE instead.
+)
 echo Native/intermediate files are also contained under build\.
 exit /b 0
 
