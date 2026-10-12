@@ -181,7 +181,7 @@ if "%NATIVE_UI%"=="1" (
             echo ERROR: lld-link.exe required for LLVM experiment.
             goto :fail_from_obj
         )
-        clang-cl /nologo /W3 /clang:-Oz /clang:-flto=full /Gy /Gw /GF /MD /TC ^
+        clang-cl /nologo --target=i686-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=full /Gy /Gw /GF /MD /TC ^
             /D_CRT_SECURE_NO_WARNINGS /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
             /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
