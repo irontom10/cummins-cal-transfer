@@ -13,7 +13,7 @@ set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 
 set "FRONTEND=win-api"
 if not "%~1"=="" set "FRONTEND=%~1"
-if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-forms" (
+if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-api-clang-no-icon" if /I not "%FRONTEND%"=="win-forms" (
     echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-forms].
     goto :fail
 )
@@ -23,6 +23,7 @@ rem win-api-tiny uses the shared MSVC runtime and needs its redistributable.
 set "NATIVE_UI=0"
 set "CRT_FLAG=/MT"
 set "OMIT_ICON=0"
+set "USE_CLANG=0"
 if /I "%FRONTEND%"=="win-api" set "NATIVE_UI=1"
 if /I "%FRONTEND%"=="win-api-tiny" (
     set "NATIVE_UI=1"
@@ -36,6 +37,12 @@ if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
     set "NATIVE_UI=1"
     set "CRT_FLAG=/MD"
     set "OMIT_ICON=1"
+)
+if /I "%FRONTEND%"=="win-api-clang-no-icon" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
+    set "OMIT_ICON=1"
+    set "USE_CLANG=1"
 )
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
@@ -163,9 +170,20 @@ if "%NATIVE_UI%"=="1" (
 
     rem Compile all objects with whole-program and size-first optimization.
     rem Standard mode retains static CRT; tiny mode uses /MD. Both retain DEP/ASLR.
-    cl /nologo /W3 /O1 /GL /Gy /Gw /GF %CRT_FLAG% /TC /D_CRT_SECURE_NO_WARNINGS ^
-        /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
-        /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+    if "%USE_CLANG%"=="1" (
+        where clang-cl.exe >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: clang-cl.exe required for LLVM experiment.
+            goto :fail_from_obj
+        )
+        where lld-link.exe >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: lld-link.exe required for LLVM experiment.
+            goto :fail_from_obj
+        )
+        clang-cl /nologo /W3 /clang:-Oz /clang:-flto=full /Gy /Gw /GF /MD /TC ^
+            /D_CRT_SECURE_NO_WARNINGS /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
+            /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
         "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
         "%SRC_CORE%\j1939_transport.c" ^
@@ -177,7 +195,24 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_CORE%\ccal_crc.c" ^
         "%SRC_CORE%\config_store.c" ^
         "%SRC_WIN_API%\main.c"
-    if errorlevel 1 goto :fail_from_obj
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        cl /nologo /W3 /O1 /GL /Gy /Gw /GF %CRT_FLAG% /TC /D_CRT_SECURE_NO_WARNINGS ^
+            /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
+            /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+        "%SRC_WIN_NATIVE%\rp1210scan.c" ^
+        "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
+        "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_platform.c" ^
+        "%SRC_CORE%\clip_transfer.c" ^
+        "%SRC_CORE%\echo_transfer.c" ^
+        "%SRC_CORE%\clip_crypto.c" ^
+        "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\ccal_crc.c" ^
+        "%SRC_CORE%\config_store.c" ^
+        "%SRC_WIN_API%\main.c"
+        if errorlevel 1 goto :fail_from_obj
+    )
 
     if "%OMIT_ICON%"=="0" (
         rem Preserve icon artwork while dropping redundant 24/64/256 frames.
@@ -194,15 +229,27 @@ if "%NATIVE_UI%"=="1" (
         echo [icon] No embedded icon resources requested.
     )
 
-    link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
-        /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
-        /OUT:"%APP%\CalibrationTransfer.exe" ^
+    if "%USE_CLANG%"=="1" (
+        lld-link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
+            /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT ^
+            /OUT:"%APP%\CalibrationTransfer.exe" ^
         main.obj %WINAPI_RESOURCE% ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
-    if errorlevel 1 goto :fail_from_obj
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
+            /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
+            /OUT:"%APP%\CalibrationTransfer.exe" ^
+        main.obj %WINAPI_RESOURCE% ^
+        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
+        ct_platform.obj clip_transfer.obj echo_transfer.obj ^
+        clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
+        kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
+        if errorlevel 1 goto :fail_from_obj
+    )
 
     popd
     goto :complete
