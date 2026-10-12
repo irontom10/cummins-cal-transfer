@@ -12,13 +12,15 @@ This document covers the existing Windows x86 WinAPI frontend, NOT the separate 
 | Optional runtime-linked /MD, reduced icon resource | **98,816 bytes** | **96.5** | **-70.8%** |
 | Standalone /MT, no icon | **209,408 bytes** | **204.5** | **-38.2%** |
 | Runtime-linked /MD, no icon | **69,632 bytes** | **68.0** | **-79.5%** |
+| Experimental Clang/LLVM /MD, no icon | **64,512 bytes** | **63.0** | **-81.0%** |
 
 Measured from GitHub Actions artifacts:
 - Original: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38205690636
 - Size-first LTCG: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207140241
 - Compact standalone: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207318006
 - Tiny runtime-linked: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207474326
-- Icon-free both variants: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207946064
+- Icon-free MSVC variants: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207946064
+- Icon-free Clang/LLVM variant: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38208271885
 
 These figures are uncompressed PE32 executable sizes, not ZIP archive sizes. Numbers are specific to the named source revisions.
 
@@ -38,6 +40,10 @@ Windows with x86 MSVC C/C++ tools:
     build.bat win-api-tiny-no-icon
     rem Builds: /MD runtime-linked, no icon resources (generic Windows icon).
 
+    build.bat win-api-clang-no-icon
+    rem Experimental: clang-cl -Oz, LLVM full LTO, lld-link (Windows x86).
+    rem Requires LLVM clang-cl and lld-link on PATH and MSVC x86 build tools.
+
     build.bat win-forms
     rem Retains the independent legacy WinForms build path.
 
@@ -50,7 +56,8 @@ Each command outputs build/app/CalibrationTransfer.exe. Build one target at a ti
 3. Size-first /O1 /GL /Gy /Gw /GF and /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO optimize the program and discard unused functions.
 4. The original ICO has seven PNG frames and occupies about 111 KiB. src/windows/tools/compact-icon.ps1 copies the 16, 32, 48, and 128 pixel frames byte-for-byte, reducing resources to roughly 29 KiB without changing artwork or overwriting the source icon. The 256px frame is omitted; Windows may upscale 128px for very large icons.
 5. Both optional no-icon modes omit the Win32 ICON resource but keep all application functionality. The Windows titlebar/taskbar use a generic icon. The regular build remains unchanged.
-6. Optional win-api-tiny uses the shared Microsoft C runtime (/MD), rather than linking CRT code inside the executable (/MT). **It is not dependency-free:** the target Windows PC must have the compatible Microsoft Visual C++ x86 runtime.
+6. The optional clang-cl target uses /MD, -Oz, full LLVM LTO, and lld-link; the native APIs and protocol sources are identical to other targets. It requires both MSVC x86 SDK/libraries and LLVM tools at build time, and the VC++ x86 runtime at deployment time. CI compilation is validated; hardware behavior has not been tested.
+7. Optional win-api-tiny uses the shared Microsoft C runtime (/MD), rather than linking CRT code inside the executable (/MT). **It is not dependency-free:** the target Windows PC must have the compatible Microsoft Visual C++ x86 runtime.
 
 The compact build retains ASLR (DYNAMIC_BASE), DEP (NX_COMPAT), normal CRT initialization, common dialogs, threads, CRC validation, and the full native calibration-transfer core. No EXE packers, custom CRT entry points, ROM patches, bootloader hacks, or protocol shortcuts.
 
@@ -58,7 +65,8 @@ The compact build retains ASLR (DYNAMIC_BASE), DEP (NX_COMPAT), normal CRT initi
 
 - [x] Standalone WinAPI compiled in Windows x86 CI
 - [x] Tiny dynamic-CRT WinAPI compiled in Windows x86 CI
-- [x] Both icon-free variants compiled in Windows x86 CI
+- [x] Both MSVC icon-free variants compiled in Windows x86 CI
+- [x] Clang/LLVM -Oz LTO icon-free x86 EXE compiled in Windows CI
 - [x] Existing native protocol tests passed in CI
 - [x] Existing Android build passed in CI
 - [x] Verified PE imports, exports, security flags and icon resources of the built binaries
