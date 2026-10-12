@@ -826,7 +826,8 @@ static int clip_cal_parse_ccal(const char *filename, clip_cal_image *image)
 
 static int clip_cal_validate_image(const clip_cal_image *image,
                                    unsigned int *special_index,
-                                   unsigned long *total_out)
+                                   unsigned long *total_out,
+                                   clip_cal_validation_detail *detail)
 {
     const clip_cal_region *region;
     unsigned long total;
@@ -852,6 +853,12 @@ static int clip_cal_validate_image(const clip_cal_image *image,
                 return CLIP_CAL_ERR_LAYOUT;
             }
             if (region->length > 253UL) {
+                if (detail != NULL) {
+                    detail->region_index = i;
+                    detail->address = region->address;
+                    detail->length = region->length;
+                    detail->has_region = 1;
+                }
                 return CLIP_CAL_ERR_RANGE;
             }
             found_special = 1U;
@@ -859,14 +866,21 @@ static int clip_cal_validate_image(const clip_cal_image *image,
                 *special_index = i;
             }
         } else {
+            /*
+             * Captured 24-bit bulk-write protocol range.  The length
+             * checks run first so the address bound subtraction cannot
+             * underflow.
+             */
             if (region->address > 0xFFFFFFUL ||
-                region->length > 0xFFFFFFUL ||
-                region->length > 0xFFFFFEUL) {
-                return CLIP_CAL_ERR_RANGE;
-            }
-
-            if (region->address >
-                0x1000000UL - region->length - 2UL) {
+                region->length > 0xFFFFFEUL ||
+                region->address >
+                    0x1000000UL - region->length - 2UL) {
+                if (detail != NULL) {
+                    detail->region_index = i;
+                    detail->address = region->address;
+                    detail->length = region->length;
+                    detail->has_region = 1;
+                }
                 return CLIP_CAL_ERR_RANGE;
             }
         }
@@ -943,11 +957,24 @@ int clip_cal_verify_ccal_crc(const char *filename)
 
 int clip_cal_validate_ccal(const char *filename)
 {
+    return clip_cal_validate_ccal_detail(filename, NULL);
+}
+
+int clip_cal_validate_ccal_detail(const char *filename,
+                                  clip_cal_validation_detail *detail)
+{
     clip_cal_image image;
     int rc;
 
     if (filename == NULL || filename[0] == '\0') {
         return CLIP_CAL_ERR_ARGUMENT;
+    }
+
+    if (detail != NULL) {
+        detail->region_index = 0U;
+        detail->address = 0UL;
+        detail->length = 0UL;
+        detail->has_region = 0;
     }
 
     if (!clip_cal_verify_ccal_crc(filename)) {
@@ -960,7 +987,7 @@ int clip_cal_validate_ccal(const char *filename)
 
     rc = clip_cal_parse_ccal(filename, &image);
     if (rc == CLIP_CAL_OK) {
-        rc = clip_cal_validate_image(&image, NULL, NULL);
+        rc = clip_cal_validate_image(&image, NULL, NULL, detail);
     }
 
     clip_cal_image_free(&image);
@@ -1320,7 +1347,7 @@ int clip_cal_send_ccal(const char *filename,
 
     special_index = 0U;
     total = 0UL;
-    rc = clip_cal_validate_image(&image, &special_index, &total);
+    rc = clip_cal_validate_image(&image, &special_index, &total, NULL);
     if (rc != CLIP_CAL_OK) {
         clip_cal_image_free(&image);
         return rc;

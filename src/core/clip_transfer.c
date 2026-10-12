@@ -119,11 +119,28 @@ struct pull_ctx {
     /*
      * ECM-side frame byte 3 for this session. In the captured GTIS4.6
      * sessions the ECM addresses every session frame to a per-connection
-     * slot (0x03 for the first observed session, 0x04 for the second);
-     * the tool's first protected 10 01 used 0x0E - slot as its outer
-     * connection ID. Kept separately from session_id, which is byte 4.
+     * slot (0x03 for the first observed session, 0x04 for the second).
+     * Recorded for diagnostics; the earlier "0x0E - slot" connection-ID
+     * correlation was retired in favor of the byte 4 block-count rule
+     * documented below.
      */
     clip_u8 ecm_slot;
+    /*
+     * GTIS4.6 protected application session state. app_key/app_iv are the
+     * ECDH-derived material (shared[0..15]/shared[16..31]).
+     */
+    int clip46_secure;
+    /*
+     * Outer byte 4 of each protected request acknowledges the transport
+     * size of the previous inbound reply: ceil(wire_length / 16) blocks.
+     * Verified against the reference capture (23B -> 0x02, 823B -> 0x34,
+     * 167B 02 04 -> 0x0B, 151B 02 04 -> 0x0A) and by two live stall
+     * patterns: misreported counts accumulate a block deficit and the
+     * ECM stops answering at roughly 180 unacknowledged blocks.
+     */
+    clip_u8 clip46_last_blocks;
+    clip_u8 clip46_app_key[16];
+    clip_u8 clip46_app_iv[16];
     unsigned int wire_slot;
     int tolerate_negative;
     int clip46_read_only_workflow;
@@ -311,6 +328,11 @@ close_j1939_transport(struct pull_ctx *ctx)
 
     j1939_transport_destroy(ctx->transport);
     ctx->transport = NULL;
+
+    /* The protected application session ends with the transport. */
+    ctx->clip46_secure = 0;
+    clip46_poc_wipe(ctx->clip46_app_key, sizeof(ctx->clip46_app_key));
+    clip46_poc_wipe(ctx->clip46_app_iv, sizeof(ctx->clip46_app_iv));
 }
 
 static int
@@ -451,12 +473,28 @@ clip_send_open(struct pull_ctx *ctx)
     clip_u8 request[9];
     clip_u8 reply[CLIP_WIRE_MAX];
     size_t reply_len;
+    const char *experiment;
     int rc;
 
     request[0] = 0x81U;
     request[1] = 0x02U;
     request[2] = 0x01U;
+    /*
+     * Byte 3 announces this tool's connection slot. Legacy sessions keep
+     * the historically observed 0x01. The GTIS4.6 experiment announces
+     * 0x03, matching the reference tool's first-session behavior: the
+     * ECM then addresses this session's frames with byte 3 = 0x03 and
+     * the first protected 10 01 uses 0x0E - slot (0x0B) as its
+     * application connection ID (rule and evidence in
+     * clip46_poc_secure.h). Bench evidence 2026-10-11: without the
+     * announcement the ECM addressed the session with byte 3 = 0x01,
+     * which is outside the observed derivation window, and the tool
+     * correctly refused to send an application request.
+     */
     request[3] = 0x01U;
+    experiment = getenv("CLIP46_POC_FILE");
+    if (experiment != NULL && experiment[0] != '\0')
+        request[3] = 0x03U;
     request[4] = 0xffU;
     request[5] = 0x01U;
     request[6] = 0xffU;
@@ -523,6 +561,222 @@ clip_send_close(struct pull_ctx *ctx)
     return j1939_send_payload(ctx, request, sizeof(request));
 }
 
+/*
+ * GTIS4.6 protected application send.
+ *
+ * Verified framing (bench 2026-10-11): the legacy application PDU's first
+ * two bytes (service, sequence) are transmitted in the clear and the
+ * remaining PDU bytes are AES-128-CBC/PKCS#7 encrypted with the
+ * ECDH-derived application key and IV. The proven first protected request
+ * "10 01 || ct(01 01 00 00 84)" is exactly
+ * clip_cal_build_query_request(0x01, 0x000084) split at byte 2.
+ *
+ * Outer byte 4 is the transport block-count acknowledgement of the
+ * previous inbound reply: ceil(wire_length / 16). The reference capture
+ * confirms 23B -> 0x02 and 823B -> 0x34, and the first request's 0x0B/0x0A
+ * values are exactly this count for the observed 167/151-byte 02 04
+ * replies; the earlier "connection ID" interpretation of those bytes was
+ * a coincidence. Misreporting the count accumulates a block deficit after
+ * which the ECM stops answering.
+ */
+static int
+clip46_send(struct pull_ctx *ctx,
+            const clip_u8 *app,
+            size_t app_len)
+{
+    clip_u8 wire[CLIP_WIRE_MAX];
+    size_t cipher_len;
+    clip_u8 cls;
+    int rc;
+
+    if (ctx == NULL || app == NULL || app_len < 2U)
+        return PULL_ERR_ARGUMENT;
+    if (app_len - 2U > sizeof(wire) - 7U - 16U)
+        return PULL_ERR_PROTOCOL;
+
+    cipher_len = 0U;
+    if (clip46_poc_encrypt_application(ctx->clip46_app_key,
+                                       ctx->clip46_app_iv,
+                                       app + 2U,
+                                       app_len - 2U,
+                                       wire + 7U,
+                                       sizeof(wire) - 7U,
+                                       &cipher_len) != 0) {
+        set_last_error_text("GTIS4.6 application encryption failed.");
+        return PULL_ERR_CRYPTO;
+    }
+
+    cls = wire_class_for_slot(ctx->wire_slot);
+    wire[0] = 0x81U;
+    wire[1] = 0x00U;
+    wire[2] = cls;
+    wire[3] = 0x00U;
+    wire[4] = ctx->clip46_last_blocks;
+    wire[5] = app[0];
+    wire[6] = app[1];
+
+    rc = j1939_send_payload(ctx, wire, 7U + cipher_len);
+    ctx->wire_slot = (ctx->wire_slot + 1U) & 7U;
+    return rc;
+}
+
+/*
+ * GTIS4.6 protected application exchange. Sends the legacy PDU through
+ * clip46_send() and waits for the reply whose visible service/sequence
+ * prefix matches (expected0, expected1). The reply body is decrypted and
+ * the full legacy reply PDU (service, sequence, data) is reconstructed for
+ * the caller, so clip_cal parsing is unchanged. Service-0x03 negatives are
+ * handled like the legacy exchange: tolerated when ctx->tolerate_negative,
+ * otherwise reported as a protocol error.
+ */
+static int
+clip46_exchange(struct pull_ctx *ctx,
+                const clip_u8 *app,
+                size_t app_len,
+                clip_u8 expected0,
+                clip_u8 expected1,
+                int check_expected1,
+                clip_u8 *reply_app,
+                size_t reply_capacity,
+                size_t *reply_len,
+                unsigned long timeout_ms)
+{
+    clip_u8 incoming[CLIP_WIRE_MAX];
+    clip_u8 plain[CLIP_APP_MAX];
+    size_t incoming_len;
+    size_t plain_len;
+    size_t n_app;
+    int rc;
+
+    if (ctx == NULL || app == NULL || reply_app == NULL || reply_len == NULL)
+        return PULL_ERR_ARGUMENT;
+
+    rc = clip46_send(ctx, app, app_len);
+    if (rc != PULL_OK)
+        return rc;
+
+    for (;;) {
+        rc = j1939_read_payload(ctx,
+                                incoming,
+                                sizeof(incoming),
+                                &incoming_len,
+                                timeout_ms);
+        if (rc != PULL_OK)
+            return rc;
+
+        if (incoming_len < 7U)
+            continue;
+        if (incoming[0] != 0x81U)
+            continue;
+
+        ctx->ecm_slot = incoming[3];
+        n_app = incoming_len - 5U;
+        if (n_app < 2U)
+            continue;
+
+        /*
+         * Negative replies keep a visible 0x03 service prefix (observed on
+         * the wire). Reconstruct with the decrypted body when possible.
+         */
+        if (incoming[5] == 0x03U &&
+            (!check_expected1 || incoming[6] == expected1)) {
+            char neg[600];
+            size_t neg_len;
+            size_t copy_len;
+            unsigned long blocks;
+
+            blocks = (unsigned long)((incoming_len + 15U) / 16U);
+            ctx->clip46_last_blocks =
+                (clip_u8)(blocks > 255UL ? 255UL : blocks);
+            plain_len = 0U;
+            if (n_app > 2U && (n_app - 2U) % 16U == 0U) {
+                (void)clip46_poc_decrypt_cbc(ctx->clip46_app_key,
+                                             ctx->clip46_app_iv,
+                                             incoming + 7U,
+                                             n_app - 2U,
+                                             plain,
+                                             sizeof(plain),
+                                             &plain_len);
+            }
+            neg_len = 2U + plain_len;
+            if (ctx->tolerate_negative) {
+                if (neg_len > reply_capacity) {
+                    set_last_error_text(
+                        "GTIS4.6 negative reply exceeds caller buffer.");
+                    return PULL_ERR_PROTOCOL;
+                }
+                reply_app[0] = incoming[5];
+                reply_app[1] = incoming[6];
+                if (plain_len != 0U)
+                    memcpy(reply_app + 2U, plain, plain_len);
+                *reply_len = neg_len;
+                return PULL_OK;
+            }
+            neg[0] = (char)incoming[5];
+            neg[1] = (char)incoming[6];
+            copy_len = plain_len;
+            if (copy_len > sizeof(neg) - 3U)
+                copy_len = sizeof(neg) - 3U;
+            if (copy_len != 0U)
+                memcpy(neg + 2, plain, copy_len);
+            set_clip_negative_error((const clip_u8 *)neg, 2U + copy_len);
+            return PULL_ERR_PROTOCOL;
+        }
+
+        if (incoming[5] != expected0)
+            continue;
+        if (check_expected1 && incoming[6] != expected1)
+            continue;
+
+        /* Acknowledge this reply's transport size on the next request. */
+        {
+            unsigned long blocks;
+
+            blocks = (unsigned long)((incoming_len + 15U) / 16U);
+            ctx->clip46_last_blocks =
+                (clip_u8)(blocks > 255UL ? 255UL : blocks);
+        }
+
+        if (n_app == 2U) {
+            if (reply_capacity < 2U) {
+                set_last_error_text("GTIS4.6 reply exceeds caller buffer.");
+                return PULL_ERR_PROTOCOL;
+            }
+            reply_app[0] = incoming[5];
+            reply_app[1] = incoming[6];
+            *reply_len = 2U;
+            return PULL_OK;
+        }
+
+        if ((n_app - 2U) % 16U != 0U) {
+            set_last_error_text(
+                "GTIS4.6 protected reply body is not block aligned.");
+            return PULL_ERR_PROTOCOL;
+        }
+        if (clip46_poc_decrypt_cbc(ctx->clip46_app_key,
+                                   ctx->clip46_app_iv,
+                                   incoming + 7U,
+                                   n_app - 2U,
+                                   plain,
+                                   sizeof(plain),
+                                   &plain_len) != 0) {
+            set_last_error_text(
+                "GTIS4.6 protected reply failed CBC validation.");
+            return PULL_ERR_PROTOCOL;
+        }
+        if (plain_len + 2U > reply_capacity) {
+            set_last_error_text("GTIS4.6 reply exceeds caller buffer.");
+            return PULL_ERR_PROTOCOL;
+        }
+        reply_app[0] = incoming[5];
+        reply_app[1] = incoming[6];
+        if (plain_len != 0U)
+            memcpy(reply_app + 2U, plain, plain_len);
+        *reply_len = plain_len + 2U;
+        return PULL_OK;
+    }
+}
+
 static int
 clip_exchange(struct pull_ctx *ctx,
               clip_u8 session_id,
@@ -545,6 +799,23 @@ clip_exchange(struct pull_ctx *ctx,
 
     if (ctx == NULL || app == NULL || reply_app == NULL || reply_len == NULL)
         return PULL_ERR_ARGUMENT;
+
+    /*
+     * GTIS4.6 protected sessions transparently encrypt the legacy PDU;
+     * callers and clip_cal parsing are unchanged.
+     */
+    if (ctx->clip46_secure) {
+        return clip46_exchange(ctx,
+                               app,
+                               app_len,
+                               expected0,
+                               expected1,
+                               check_expected1,
+                               reply_app,
+                               reply_capacity,
+                               reply_len,
+                               timeout_ms);
+    }
 
     if (app_len + 5U > sizeof(wire)) {
         set_last_error_text("CLIP application PDU is too large.");
@@ -747,6 +1018,10 @@ clip_send_only(struct pull_ctx *ctx,
 
     if (ctx == NULL || app == NULL)
         return PULL_ERR_ARGUMENT;
+
+    if (ctx->clip46_secure)
+        return clip46_send(ctx, app, app_len);
+
     if (app_len + 5U > sizeof(wire))
         return PULL_ERR_PROTOCOL;
 
@@ -794,7 +1069,6 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     clip_u8 app_iv[16], app_key[16];
     size_t reply_len, reply_plain_len;
     int rc;
-    int id_derived;
 
     memset(&config, 0, sizeof(config));
     memset(&keypair, 0, sizeof(keypair));
@@ -807,7 +1081,6 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     memset(app_iv, 0, sizeof(app_iv));
     memset(app_key, 0, sizeof(app_key));
     rc = PULL_ERR_CRYPTO;
-    id_derived = 0;
 
     if (clip_parse_secure_seed_reply(seed_pdu, seed_len, &seed) != CLIP_OK) {
         set_last_error_text("Invalid GTIS4.6 02 02 challenge.");
@@ -873,87 +1146,44 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     clip46_poc_wipe(&keypair, sizeof(keypair));
 
     /*
-     * Negotiate the application connection ID for the first protected
-     * request from the ECM frame slot (rule and evidence in
-     * clip46_poc_secure.h). ctx->session_id currently holds the 02 04's
-     * byte 4 (constant 0x08 in every capture), which is transport
-     * bookkeeping only and is NOT the application ID.
+     * Outer byte 4 of the first protected request acknowledges the
+     * transport size of the 02 04 reply: ceil(wire_length / 16) blocks,
+     * where the wire length is reply_len + 5 (envelope + PDU). The
+     * previously suspected "connection ID" values 0x0B/0x0A are exactly
+     * this count for the observed 167/151-byte 02 04 replies; the
+     * slot-based derivation was a coincidence and is retired.
      */
     {
-        unsigned char derived_id;
-        char note[192];
+        char note[112];
+        unsigned long blocks;
 
-        if (clip46_poc_derive_connection_id(ctx->ecm_slot, &derived_id) == 0) {
-            /*
-             * Diagnostic cross-check only: report where the derived byte
-             * occurs in the decrypted 02 04 body outside the trailing
-             * 32-byte peer X coordinate. Metadata (offsets and a count)
-             * alone; no plaintext is exposed, and presence is not yet
-             * proof of the field's meaning until the offset is pinned
-             * across sessions.
-             */
-            size_t scan_len = reply_plain_len - 32U;
-            size_t i;
-            unsigned long hits;
-            unsigned int shown;
-
-            hits = 0UL;
-            shown = 0U;
-            for (i = 0U; i < scan_len; ++i) {
-                if (reply_plain[i] == derived_id) {
-                    if (shown == 0U)
-                        sprintf(note,
-                                "GTIS4.6 slot 0x%02X derives cid 0x%02X; "
-                                "02 04 plaintext offsets",
-                                (unsigned)ctx->ecm_slot,
-                                (unsigned)derived_id);
-                    if (shown < 4U) {
-                        sprintf(note + strlen(note),
-                                " %lu",
-                                (unsigned long)i);
-                        shown++;
-                    }
-                    hits++;
-                }
-            }
-            if (shown == 0U)
-                sprintf(note,
-                        "GTIS4.6 slot 0x%02X derives cid 0x%02X; byte "
-                        "absent from decrypted 02 04 body",
-                        (unsigned)ctx->ecm_slot,
-                        (unsigned)derived_id);
-            else
-                sprintf(note + strlen(note),
-                        " (%lu total)",
-                        hits);
-            report_progress(ctx, 8, note);
-            ctx->session_id = derived_id;
-            id_derived = 1;
-        } else {
-            sprintf(note,
-                    "GTIS4.6 ECM slot 0x%02X outside observed range; "
-                    "connection ID not derived",
-                    (unsigned)ctx->ecm_slot);
-            report_progress(ctx, 8, note);
-        }
+        blocks = (unsigned long)((reply_len + 5U + 15U) / 16U);
+        if (blocks > 255UL)
+            blocks = 255UL;
+        ctx->clip46_last_blocks = (clip_u8)blocks;
+        sprintf(note,
+                "GTIS4.6: slot 0x%02X; first request acknowledges %lu "
+                "transport block(s).",
+                (unsigned)ctx->ecm_slot,
+                blocks);
+        report_progress(ctx, 8, note);
     }
 
     /*
-     * 02 04 is not an authenticated acknowledgement until full message
-     * semantics are validated. Optional single read-only 10 01 query
-     * uses the derived connection ID; CLIP46_POC_CONN_ID still overrides
-     * it for independent verification, and without either no app request
-     * is sent.
+     * Optional read-only protected session: send the proven first status
+     * query (0x0084) through the transparent secure codec. The first
+     * request's byte 4 is the mechanical 02 04 block acknowledgement
+     * above; CLIP46_POC_CONN_ID overrides it for independent verification.
+     * On success the protected session is left active so the ordinary
+     * read-only download workflow continues over it.
      */
     if (ctx->clip46_read_only_workflow) {
         const char *enable;
         enable = getenv("CLIP46_POC_PULL");
         if (enable != NULL && strcmp(enable, "1") == 0) {
-            static const clip_u8 query[5] = {
-                0x01U, 0x01U, 0x00U, 0x00U, 0x84U
-            };
-            clip_u8 request[18], response[256], response_plain[256];
-            size_t encrypted_len, response_len, decoded_len;
+            clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
+            clip_u8 response[CLIP_APP_MAX];
+            size_t response_len;
             const char *conn_id;
             conn_id = getenv("CLIP46_POC_CONN_ID");
             if (conn_id != NULL && conn_id[0] != '\0') {
@@ -968,60 +1198,64 @@ clip46_experimental_auth(struct pull_ctx *ctx,
                     goto done;
                 }
                 /* Explicit local verification override wins. */
-                ctx->session_id = (clip_u8)n;
-            } else if (!id_derived) {
-                set_last_error_text(
-                    "GTIS4.6 ECDH derived fresh app material, but the "
-                    "connection ID was not derived (unexpected ECM slot) "
-                    "and no CLIP46_POC_CONN_ID override is set. "
-                    "No app request sent.");
-                rc = PULL_ERR_SECURE_POST_AUTH;
-                goto done;
+                ctx->clip46_last_blocks = (clip_u8)n;
             }
             memset(request, 0, sizeof(request));
             memset(response, 0, sizeof(response));
-            memset(response_plain, 0, sizeof(response_plain));
-            request[0] = 0x10U;
-            request[1] = 0x01U;
-            if (clip46_poc_encrypt_application(app_key, app_iv, query,
-                    sizeof(query), request + 2U, sizeof(request)-2U,
-                    &encrypted_len) != 0 || encrypted_len != 16U) {
-                set_last_error_text("GTIS4.6 protected query encryption failed.");
-                rc = PULL_ERR_CRYPTO;
+            /*
+             * Standard query PDU 10 01 01 01 00 00 84; the codec sends the
+             * service/sequence bytes clear and encrypts the remainder,
+             * reproducing the bench-verified first protected request.
+             */
+            rc = clip_cal_build_query_request(0x01U, 0x000084UL, request);
+            if (rc != CLIP_CAL_OK) {
+                set_last_error_text("GTIS4.6 failed to build status query.");
+                rc = PULL_ERR_CAL;
                 goto done;
             }
-            report_progress(ctx, 9, "TEST: sending one protected status query...");
+            /* Promote the session before the exchange so it routes
+             * through clip46_exchange(); cleared again on failure. */
+            memcpy(ctx->clip46_app_key, app_key, 16U);
+            memcpy(ctx->clip46_app_iv, app_iv, 16U);
+            ctx->clip46_secure = 1;
+            report_progress(ctx, 9,
+                            "GTIS4.6: sending first protected status query...");
             rc = clip_exchange(ctx, ctx->session_id, request,
-                               encrypted_len + 2U, 0x01U, 0x01U, 1,
+                               sizeof(request), 0x01U, 0x01U, 1,
                                response, sizeof(response), &response_len,
                                CLIP_TIMEOUT_MS);
-            clip46_poc_wipe(request, sizeof(request));
-            if (rc != PULL_OK) goto done;
-            if (response_len < 18U ||
-                (response_len-2U) % 16U != 0U ||
-                clip46_poc_decrypt_cbc(app_key, app_iv, response+2U,
-                     response_len-2U, response_plain, sizeof(response_plain),
-                     &decoded_len) != 0 || decoded_len == 0U) {
+            if (rc != PULL_OK) {
+                ctx->clip46_secure = 0;
+                clip46_poc_wipe(ctx->clip46_app_key,
+                                sizeof(ctx->clip46_app_key));
+                clip46_poc_wipe(ctx->clip46_app_iv,
+                                sizeof(ctx->clip46_app_iv));
+                goto done;
+            }
+            if (response_len < 2U ||
+                response[0] != CLIP_CAL_SERVICE_REPLY) {
                 set_last_error_text(
-                    "GTIS4.6 encrypted status reply failed CBC validation.");
+                    "GTIS4.6 protected status reply has unexpected shape.");
+                ctx->clip46_secure = 0;
+                clip46_poc_wipe(ctx->clip46_app_key,
+                                sizeof(ctx->clip46_app_key));
+                clip46_poc_wipe(ctx->clip46_app_iv,
+                                sizeof(ctx->clip46_app_iv));
                 rc = PULL_ERR_PROTOCOL;
-            } else {
-                set_last_error_text(
-                    "GTIS4.6 protected reply decrypted with the derived "
-                    "connection ID. App response semantics remain "
-                    "unverified; calibration readback stays disabled.");
-                rc = PULL_ERR_SECURE_POST_AUTH;
+                goto done;
             }
             clip46_poc_wipe(response, sizeof(response));
-            clip46_poc_wipe(response_plain, sizeof(response_plain));
+            report_progress(ctx, 10,
+                            "GTIS4.6: protected session established; "
+                            "continuing read-only calibration readback.");
+            rc = PULL_OK;
             goto done;
         }
     }
     set_last_error_text(
         "GTIS4.6 02 04 decrypted and fresh P-256 ECDH derived. "
-        "Connection ID derived from the ECM frame slot (evidence-based "
-        "rule; see clip46_poc_secure.h). Context/ack semantics remain "
-        "unverified. No application request or calibration readback sent.");
+        "Set CLIP46_POC_PULL=1 to open the protected read-only session. "
+        "Context/ack semantics remain unverified.");
     rc = PULL_ERR_SECURE_POST_AUTH;
 
 done:
@@ -3454,6 +3688,221 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
 }
 
 /*
+ * GTIS4.6 staged flash experiment (CLIP46_POC_FLASH=1).
+ *
+ * Runs every stage that the passive OEM flash capture evidences, and
+ * HARD-STOPS before the first component whose contents cannot be derived
+ * from a passive capture:
+ *
+ *   stage 1  secure session (caller, CLIP46_POC_PULL=1)
+ *   stage 2  multi-query + 0x000B state entry (observed session shape)
+ *   stage 3  legacy-format unlock/lock/unlock dance through the
+ *            protected codec; every ECM reply is reported
+ *   stage 4  DA00 channel open + the captured init command sequence;
+ *            every ECM reply is reported
+ *   STOP     the DA00 authentication block ("22 27 08" + 32
+ *            session-derived bytes) has no known derivation. Without it
+ *            the ECM will not accept any image data.
+ *
+ * The flow never transmits image data, never enters a loader mode, and
+ * re-locks the calibration before exiting. A power cycle is still
+ * recommended after any unlock test.
+ */
+static int
+clip46_staged_flash(struct pull_ctx *ctx,
+                    const char *api_name,
+                    int device_id,
+                    int baud,
+                    clip_u8 tool_sa,
+                    clip_u8 ecm_sa)
+{
+    clip_u8 reply[CLIP_APP_MAX];
+    clip_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    size_t reply_len;
+    clip_u8 sequence;
+    char note[192];
+    int rc;
+
+    (void)api_name;
+    (void)device_id;
+    (void)baud;
+    (void)tool_sa;
+    (void)ecm_sa;
+
+    rc = PULL_ERR_SECURE_POST_AUTH;
+    sequence = 0x02U; /* the protected session's first query used seq 01 */
+
+    /*
+     * Stage 2: reproduce the observed session shape before the unlock
+     * (multi-query, then the 0x000B state entry with outer byte 4 = 00).
+     */
+    report_progress(ctx, 20, "GTIS4.6 flash stage 2: session preflight...");
+    rc = cal_preflight_multi_query(ctx, &sequence);
+    if (rc != PULL_OK)
+        goto done;
+    rc = cal_enter_0b_state(ctx, &sequence, 1);
+    if (rc != PULL_OK)
+        goto done;
+
+    /*
+     * Stage 3: legacy-format unlock dance. The captured GTIS4.6 unlock
+     * commands are encrypted, but the legacy family uses
+     * "12 <seq> 00 18 <value>" with value 0 = unlock, 1 = lock. Every
+     * reply is reported so the bench run shows whether the ECM accepts
+     * this interpretation.
+     */
+    report_progress(ctx, 25, "GTIS4.6 flash stage 3: unlock dance...");
+    {
+        int stage;
+        for (stage = 0; stage < 3; ++stage) {
+        static const clip_u8 values[3] = {0U, 1U, 0U};
+        clip_u8 seq;
+
+        seq = sequence;
+        rc = clip_cal_build_mode_request(seq, 0x0018U,
+                                         (unsigned int)values[stage],
+                                         request);
+        if (rc != CLIP_CAL_OK) {
+            rc = PULL_ERR_CAL;
+            goto done;
+        }
+        rc = cal_exchange_sequence(ctx,
+                                   request,
+                                   sizeof(request),
+                                   seq,
+                                   reply,
+                                   sizeof(reply),
+                                   &reply_len,
+                                   CLIP_TIMEOUT_MS);
+        sequence = clip_cal_next_sequence(seq);
+        if (rc != PULL_OK) {
+            sprintf(note,
+                    "GTIS4.6 unlock step %d (value %u): exchange failed.",
+                    stage + 1, values[stage]);
+            report_progress(ctx, 26, note);
+            goto done;
+        }
+        sprintf(note,
+                "GTIS4.6 unlock step %d (12 %02X 00 18 %02X): "
+                "reply len=%lu svc=%02X seq=%02X",
+                stage + 1,
+                (unsigned)seq,
+                values[stage],
+                (unsigned long)reply_len,
+                (unsigned)(reply_len > 0U ? reply[0] : 0U),
+                (unsigned)(reply_len > 1U ? reply[1] : 0U));
+        report_progress(ctx, 26, note);
+    }
+    } /* stage variable block */
+
+    /*
+     * Stage 4: attempt the legacy loader transition. The OEM tool uses
+     * the DA00 streaming protocol instead, but the ECM may still accept
+     * the legacy "12 <seq> 00 17 00" loader-mode command through the
+     * secure codec. A negative reply is harmless and informative.
+     */
+    report_progress(ctx, 35,
+                    "GTIS4.6 flash stage 4: attempting legacy loader "
+                    "transition (mode 0x0017)...");
+    {
+        clip_u8 seq;
+
+        seq = sequence;
+        rc = clip_cal_build_mode_request(seq, 0x0017U, 0x00U, request);
+        if (rc != CLIP_CAL_OK) {
+            rc = PULL_ERR_CAL;
+            goto done;
+        }
+        rc = cal_exchange_sequence(ctx,
+                                   request,
+                                   sizeof(request),
+                                   seq,
+                                   reply,
+                                   sizeof(reply),
+                                   &reply_len,
+                                   CLIP_TIMEOUT_MS);
+        sequence = clip_cal_next_sequence(seq);
+        if (rc != PULL_OK) {
+            sprintf(note,
+                    "GTIS4.6 loader transition (12 %02X 00 17 00): "
+                    "exchange failed - ECM may not support the legacy "
+                    "loader path over the secure session.",
+                    (unsigned)seq);
+            report_progress(ctx, 36, note);
+            goto done;
+        }
+        sprintf(note,
+                "GTIS4.6 loader transition reply: len=%lu svc=%02X seq=%02X "
+                "data=%02X %02X",
+                (unsigned long)reply_len,
+                (unsigned)(reply_len > 0U ? reply[0] : 0U),
+                (unsigned)(reply_len > 1U ? reply[1] : 0U),
+                (unsigned)(reply_len > 2U ? reply[2] : 0U),
+                (unsigned)(reply_len > 3U ? reply[3] : 0U));
+        report_progress(ctx, 36, note);
+
+        if (reply_len >= 2U && reply[0] == CLIP_CAL_SERVICE_REPLY) {
+            report_progress(ctx, 37,
+                            "GTIS4.6: loader transition ACCEPTED. The ECM "
+                            "should drop the CLIP session and start the raw "
+                            "calibration loader. The existing legacy upload "
+                            "path can now take over after the standard 11s "
+                            "startup wait.");
+            set_last_error_text(
+                "GTIS4.6 loader transition accepted via the secure CLIP "
+                "session. The ECM is transitioning to the raw calibration "
+                "loader. Re-run the upload WITHOUT CLIP46_POC_FLASH to "
+                "use the full legacy programming path (raw loader "
+                "preamble + 4B/4D writes + verify + re-lock).");
+        } else if (reply_len >= 2U && reply[0] == 0x03U) {
+            report_progress(ctx, 37,
+                            "GTIS4.6: loader transition REJECTED (negative "
+                            "reply). The ECM requires the DA00 streaming "
+                            "protocol for calibration writes.");
+            set_last_error_text(
+                "GTIS4.6 loader transition rejected: the CM2450E does not "
+                "accept the legacy raw-loader entry over the secure "
+                "session. The DA00 streaming protocol is required.");
+        } else {
+            report_progress(ctx, 37,
+                            "GTIS4.6: loader transition reply has an "
+                            "unexpected shape - inspect the progress log.");
+            set_last_error_text(
+                "GTIS4.6 loader transition produced an unexpected reply. "
+                "No image data was sent.");
+        }
+    }
+
+    /*
+     * No image data is ever sent by this staged flow.
+     */
+    rc = PULL_ERR_SECURE_POST_AUTH;
+
+done:
+    /* Best-effort re-lock through the CLIP session. */
+    if (sequence != 0x02U) {
+        clip_u8 seq;
+
+        seq = sequence;
+        if (clip_cal_build_mode_request(seq, 0x0018U, 1U, request) ==
+            CLIP_CAL_OK) {
+            clip_u8 lock_reply[CLIP_APP_MAX];
+            size_t lock_reply_len;
+
+            (void)cal_exchange_sequence(ctx,
+                                        request,
+                                        sizeof(request),
+                                        seq,
+                                        lock_reply,
+                                        sizeof(lock_reply),
+                                        &lock_reply_len,
+                                        CLIP_TIMEOUT_MS);
+        }
+    }
+    return rc;
+}
+
+/*
  * A failed loader transition or incomplete flash may leave no active CLIP
  * session.  Re-lock only if the recovered APPLICATION authenticates.
  * This cannot guarantee re-lock if the ECM remains in loader mode.
@@ -3638,29 +4087,75 @@ rp1210_pull_ccal(const char *api_name,
         goto done;
     clip_open = 1;
 
-    sequence = 0x00U;
+    if (ctx.clip46_secure) {
+        /*
+         * GTIS4.6 secure readback. The first protected query (sequence
+         * 01, the bench-verified 0x0084 status query) was already sent
+         * during authentication. Continue with the observed secure-session
+         * shape: the multi-query at sequence 02 and the 0x000B state entry
+         * at sequence 03 (outer byte 4 = 00 in both reference recordings),
+         * then read the descriptor. The legacy preflight probes and the
+         * separate MAIN phase entry were not observed in the secure
+         * reference session and are skipped.
+         */
+        sequence = 0x02U;
+        report_progress(&ctx, 11, "Running GTIS4.6 secure preflight...");
+        rc = cal_preflight_multi_query(&ctx, &sequence);
+        if (rc != PULL_OK)
+            goto done;
 
-    /* Reproduce the observed reference tool post-authentication preflight. */
-    report_progress(&ctx, 8, "Running reference tool CLIP preflight...");
-    rc = cal_run_protocol_preflight(&ctx, &sequence);
-    if (rc != PULL_OK)
-        goto done;
+        rc = cal_enter_0b_state(&ctx, &sequence, 1);
+        if (rc != PULL_OK)
+            goto done;
+    } else {
+        sequence = 0x00U;
 
-    if (sequence != 0x16U) {
-        set_last_error_code("Unexpected CLIP preflight sequence", (long)sequence);
-        rc = PULL_ERR_PROTOCOL;
-        goto done;
+        /* Reproduce the observed reference tool post-authentication preflight. */
+        report_progress(&ctx, 8, "Running reference tool CLIP preflight...");
+        rc = cal_run_protocol_preflight(&ctx, &sequence);
+        if (rc != PULL_OK)
+            goto done;
+
+        if (sequence != 0x16U) {
+            set_last_error_code("Unexpected CLIP preflight sequence", (long)sequence);
+            rc = PULL_ERR_PROTOCOL;
+            goto done;
+        }
+
+        report_progress(&ctx, 9, "Entering calibration upload phase...");
+        rc = cal_enter_phase(&ctx, &sequence, CLIP_CAL_PHASE_MAIN);
+        if (rc != PULL_OK)
+            goto done;
     }
 
-    report_progress(&ctx, 9, "Entering calibration upload phase...");
-    rc = cal_enter_phase(&ctx, &sequence, CLIP_CAL_PHASE_MAIN);
-    if (rc != PULL_OK)
-        goto done;
-
-    report_progress(&ctx, 10, "Reading calibration memory descriptor...");
+    report_progress(&ctx, 12, "Reading calibration memory descriptor...");
     rc = cal_get_descriptor(&ctx, &sequence, &map);
     if (rc != PULL_OK)
         goto done;
+
+    /*
+     * Log the ECM's region table (metadata only) so it can be compared
+     * directly against the INCAL image regions.
+     */
+    if (ctx.clip46_secure) {
+        char msg[512];
+        size_t used;
+        unsigned int r;
+
+        used = (size_t)sprintf(msg,
+                               "GTIS4.6 descriptor 0x%08lX: %u range(s):",
+                               (unsigned long)map.descriptor_value,
+                               map.range_count);
+        for (r = 0U;
+             r < map.range_count && used < sizeof(msg) - 24U;
+             ++r) {
+            used += (size_t)sprintf(msg + used,
+                                    " %08lX+%lu",
+                                    (unsigned long)map.ranges[r].address,
+                                    (unsigned long)map.ranges[r].length);
+        }
+        report_progress(&ctx, 13, msg);
+    }
 
     rc = allocate_image(&map, &image);
     if (rc != PULL_OK)
@@ -3726,6 +4221,7 @@ rp1210_upload_ccal(const char *api_name,
     clip_cal_io io;
     clip_cal_options options;
     echo_io echo;
+    clip_cal_validation_detail detail;
     clip_u8 sequence;
     int rc;
     int cal_rc;
@@ -3754,13 +4250,46 @@ rp1210_upload_ccal(const char *api_name,
     if (progress != NULL)
         progress(0, "Validating CCAL CRC, Intel-HEX structure, and loader layout...");
 
-    cal_rc = clip_cal_validate_ccal(ccal_path);
+    memset(&detail, 0, sizeof(detail));
+    if (getenv("CLIP46_POC_FLASH") != NULL &&
+        strcmp(getenv("CLIP46_POC_FLASH"), "1") == 0) {
+        /*
+         * GTIS4.6 staged flash experiment: CRC-only preflight. The legacy
+         * raw-loader layout checks (24-bit addressing, 3-range layouts)
+         * do not apply to the DA00 streaming protocol. The staged flow
+         * never transmits image data.
+         */
+        if (!clip_cal_verify_ccal_crc(ccal_path)) {
+            set_last_error_text(
+                "CCAL CRC verification failed. No programming traffic was sent.");
+            return PULL_ERR_CRC;
+        }
+        report_progress(&ctx, 1,
+                        "GTIS4.6 staged flash: CRC ok; legacy loader "
+                        "layout checks skipped for the DA00 protocol.");
+        cal_rc = CLIP_CAL_OK;
+    } else {
+        cal_rc = clip_cal_validate_ccal_detail(ccal_path, &detail);
+    }
     if (cal_rc != CLIP_CAL_OK) {
         char msg[512];
 
-        sprintf(msg,
-                "CCAL preflight validation failed: %s. No programming traffic was sent.",
-                clip_cal_strerror(cal_rc));
+        if (cal_rc == CLIP_CAL_ERR_RANGE && detail.has_region) {
+            sprintf(msg,
+                    "CCAL preflight validation failed: region %u "
+                    "(0x%08lX + %lu bytes) is outside the captured 24-bit "
+                    "programming range. The legacy raw loader is the only "
+                    "implemented upload path; GTIS4.6 secure ECMs use a "
+                    "different streaming mechanism that is not yet "
+                    "implemented. No programming traffic was sent.",
+                    detail.region_index,
+                    detail.address,
+                    detail.length);
+        } else {
+            sprintf(msg,
+                    "CCAL preflight validation failed: %s. No programming traffic was sent.",
+                    clip_cal_strerror(cal_rc));
+        }
         set_last_error_text(msg);
 
         if (cal_rc == CLIP_CAL_ERR_CRC)
@@ -3776,6 +4305,13 @@ rp1210_upload_ccal(const char *api_name,
     ctx.session_id = 0x01U;
     ctx.wire_slot = 0U;
     ctx.progress = progress;
+    /*
+     * The GTIS4.6 protected session (and the staged flash experiment)
+     * reuses the read-only workflow gate: CLIP46_POC_PULL=1 with
+     * CLIP46_POC_FILE establishes the session; CLIP46_POC_FLASH=1 then
+     * selects the staged flash flow after authentication.
+     */
+    ctx.clip46_read_only_workflow = 1;
     clip_open = 0;
     loader_mode = 0;
     loader_requested = 0;
@@ -3830,37 +4366,103 @@ rp1210_upload_ccal(const char *api_name,
     }
     if (rc != PULL_OK)
         goto done;
-    clip_open = 1;
-
-    sequence = 0x00U;
-    report_progress(&ctx, 10, "Running reference tool CLIP programming preflight...");
-    rc = cal_run_upload_preflight(&ctx, &sequence);
-    if (rc != PULL_OK)
-        goto done;
-    if (sequence != 0x16U) {
-        set_last_error_code("Unexpected upload preflight sequence", (long)sequence);
-        rc = PULL_ERR_PROTOCOL;
-        goto done;
-    }
 
     /*
-     * Unlock only after file and authenticated CLIP preflight.  Mark the
-     * attempt before sending: the acknowledgement could be lost.
+     * GTIS4.6 secure sessions: run the full upload through the encrypted
+     * codec (secure preflight + unlock + loader transition), then fall
+     * through to the raw loader path below.
      */
-    report_progress(&ctx, 17, "Unlocking ECM calibration access...");
-    unlock_attempted = 1;
-    rc = cal_enter_mode_value(&ctx, &sequence,
-                              CLIP_MODE_CAL_LOCK, CLIP_CAL_UNLOCKED);
-    if (rc != PULL_OK) {
-        set_last_error_text(
-            "Calibration unlock not acknowledged; programming not started.");
-        goto done;
-    }
+    if (ctx.clip46_secure) {
+        const char *flash_env;
 
-    report_progress(&ctx, 18, "Unlock acknowledged; entering calibration loader...");
-    rc = cal_prepare_programming(&ctx, &sequence, &loader_requested);
-    if (rc != PULL_OK)
-        goto done;
+        flash_env = getenv("CLIP46_POC_FLASH");
+        if (flash_env != NULL && strcmp(flash_env, "1") == 0) {
+            report_progress(&ctx, 5,
+                            "GTIS4.6 upload via secure CLIP codec...");
+            sequence = 0x02U; /* auth query used seq 01 */
+
+            /* Secure preflight: multi-query + 0x0B state entry. */
+            rc = cal_preflight_multi_query(&ctx, &sequence);
+            if (rc != PULL_OK)
+                goto done;
+            rc = cal_enter_0b_state(&ctx, &sequence, 1);
+            if (rc != PULL_OK)
+                goto done;
+
+            /* Unlock through the encrypted codec. */
+            report_progress(&ctx, 17,
+                            "GTIS4.6: unlocking calibration access...");
+            unlock_attempted = 1;
+            rc = cal_enter_mode_value(&ctx, &sequence,
+                                      CLIP_MODE_CAL_LOCK,
+                                      CLIP_CAL_UNLOCKED);
+            if (rc != PULL_OK) {
+                set_last_error_text(
+                    "GTIS4.6 calibration unlock not acknowledged; "
+                    "programming not started.");
+                goto done;
+            }
+
+            /* Loader transition through the encrypted codec. */
+            report_progress(&ctx, 18,
+                            "GTIS4.6: entering calibration loader...");
+            rc = cal_prepare_programming(&ctx, &sequence,
+                                         &loader_requested);
+            if (rc != PULL_OK) {
+                set_last_error_text(
+                    "GTIS4.6 loader transition (mode 0x0017) failed. "
+                    "The ECM may require the DA00 streaming protocol.");
+                goto done;
+            }
+
+            report_progress(&ctx, 19,
+                            "GTIS4.6: loader transition accepted; "
+                            "continuing with raw calibration loader.");
+            /*
+             * Fall through to the raw loader section below — the CLIP
+             * session is dropping, the raw loader will start.
+             */
+        } else {
+            report_progress(&ctx, 5,
+                            "GTIS4.6 secure programming is not supported.");
+            set_last_error_text(
+                "GTIS4.6 secure calibration upload requires "
+                "CLIP46_POC_FLASH=1 (upload through the encrypted CLIP "
+                "codec). Use the recommended OEM software otherwise.");
+            rc = PULL_ERR_SECURE_POST_AUTH;
+            goto done;
+        }
+    } else {
+        /*
+         * Legacy (non-secure) path: full 22-query preflight, unlock,
+         * and loader transition.
+         */
+        sequence = 0x00U;
+        report_progress(&ctx, 10, "Running reference tool CLIP programming preflight...");
+        rc = cal_run_upload_preflight(&ctx, &sequence);
+        if (rc != PULL_OK)
+            goto done;
+        if (sequence != 0x16U) {
+            set_last_error_code("Unexpected upload preflight sequence", (long)sequence);
+            rc = PULL_ERR_PROTOCOL;
+            goto done;
+        }
+
+        report_progress(&ctx, 17, "Unlocking ECM calibration access...");
+        unlock_attempted = 1;
+        rc = cal_enter_mode_value(&ctx, &sequence,
+                                  CLIP_MODE_CAL_LOCK, CLIP_CAL_UNLOCKED);
+        if (rc != PULL_OK) {
+            set_last_error_text(
+                "Calibration unlock not acknowledged; programming not started.");
+            goto done;
+        }
+
+        report_progress(&ctx, 18, "Unlock acknowledged; entering calibration loader...");
+        rc = cal_prepare_programming(&ctx, &sequence, &loader_requested);
+        if (rc != PULL_OK)
+            goto done;
+    }
 
     loader_mode = 1;
     clip_open = 0;

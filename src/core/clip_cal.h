@@ -321,6 +321,22 @@ int clip_cal_verify_ccal_crc(const char *filename);
 int clip_cal_validate_ccal(const char *filename);
 
 /*
+ * Same validation as clip_cal_validate_ccal(), but on failure also reports
+ * the first region that violated a per-region constraint (address/length
+ * outside the captured 24-bit programming range, or an over-long short
+ * metadata region).  Whole-image layout failures set has_region to 0.
+ */
+typedef struct clip_cal_validation_detail_tag {
+    unsigned int region_index;
+    unsigned long address;
+    unsigned long length;
+    int has_region;
+} clip_cal_validation_detail;
+
+int clip_cal_validate_ccal_detail(const char *filename,
+                                  clip_cal_validation_detail *detail);
+
+/*
  * Program a parsed .ccal over the raw loader protocol observed in the
  * reference tool upload capture:
  *

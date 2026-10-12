@@ -269,8 +269,8 @@ int clip46_poc_build(const unsigned char challenge[16],
     memcpy(plaintext+67U,opaque32,32U);
     return 0;
 }
-/* Evidence-documented rule; see clip46_poc_secure.h. Rejects slots outside
- * the observed 0x03..0x0B window instead of guessing an ID. */
+/* Superseded investigation record; see clip46_poc_secure.h. Rejects slots
+ * outside the observed 0x03..0x0B window instead of guessing an ID. */
 int clip46_poc_derive_connection_id(unsigned char slot,
                                     unsigned char *connection_id)
 {
