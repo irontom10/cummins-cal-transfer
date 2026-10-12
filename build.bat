@@ -13,9 +13,19 @@ set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 
 set "FRONTEND=win-api"
 if not "%~1"=="" set "FRONTEND=%~1"
-if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-forms" (
-    echo ERROR: Expected build.bat [win-api^|win-forms].
+if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-forms" (
+    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-forms].
     goto :fail
+)
+
+rem Standard WinAPI build remains self-contained with the static C runtime.
+rem win-api-tiny uses the shared MSVC runtime and needs its redistributable.
+set "NATIVE_UI=0"
+set "CRT_FLAG=/MT"
+if /I "%FRONTEND%"=="win-api" set "NATIVE_UI=1"
+if /I "%FRONTEND%"=="win-api-tiny" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
 )
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
@@ -131,7 +141,7 @@ if errorlevel 1 goto :fail_from_obj
 
 popd
 
-if /I "%FRONTEND%"=="win-api" (
+if "%NATIVE_UI%"=="1" (
     echo [4/4] Building compact native Win32 application ^(no .NET^)...
     rem DLL exports must not leak into the statically linked EXE.
     rem Separate object files retain the exported DLLs and CRC tool unchanged.
@@ -140,8 +150,8 @@ if /I "%FRONTEND%"=="win-api" (
     pushd "%OBJ%\compact"
 
     rem Compile all objects with whole-program and size-first optimization.
-    rem Retain the static MSVC CRT, normal startup, DEP and ASLR.
-    cl /nologo /W3 /O1 /GL /Gy /Gw /GF /MT /TC /D_CRT_SECURE_NO_WARNINGS ^
+    rem Standard mode retains static CRT; tiny mode uses /MD. Both retain DEP/ASLR.
+    cl /nologo /W3 /O1 /GL /Gy /Gw /GF %CRT_FLAG% /TC /D_CRT_SECURE_NO_WARNINGS ^
         /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
         /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
