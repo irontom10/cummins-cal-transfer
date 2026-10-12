@@ -3,7 +3,9 @@
 
 #ifdef _WIN32
 #define CT_CONFIG_CALL __cdecl
-#ifdef CT_CONFIG_EXPORTS
+#ifdef CT_CONFIG_STATIC_LINK
+#define CT_CONFIG_API
+#elif defined(CT_CONFIG_EXPORTS)
 #define CT_CONFIG_API __declspec(dllexport)
 #else
 #define CT_CONFIG_API __declspec(dllimport)
