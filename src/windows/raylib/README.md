@@ -1,0 +1,37 @@
+# Raylib frontend (Windows / x86)
+
+This is a third UI for Calibration Transfer, written in ISO C89 with raylib controls and Windows native Open/Save dialogs. It links the **existing native RP1210, J1939, and calibration core directly**, with no .NET or WinForms dependency.
+
+## Build
+
+Install CMake and Visual Studio's 32-bit MSVC C/C++ toolchain. Run from the repository root:
+
+    build-raylib.bat
+
+The build first checks for an installed raylib 5.5 package, otherwise fetches the pinned upstream source and builds it. Result:
+
+    build/raylib/app/Release/CalibrationTransferRaylib.exe
+
+For an offline build with pre-downloaded raylib source:
+
+    cmake -S src/windows/raylib -B build/raylib -A Win32 -DFETCHCONTENT_SOURCE_DIR_RAYLIB=C:/path/to/raylib
+    cmake --build build/raylib --config Release
+
+## Windows UI feature parity
+
+| Windows feature | Raylib implementation |
+| --- | --- |
+| RP1210 vendor discovery | rp1210_refresh / rp1210_get |
+| Adapter/device selection, automatic device | Scrollable selectors using the existing scanner |
+| J1939 and baud (Auto/125k/250k/500k/1M) | Identical native arguments |
+| Tool SA / ECM SA | Validated hexadecimal byte fields |
+| Read/download ECM to CCAL | rp1210_pull_ccal and Windows Save As dialog |
+| Upload CCAL to ECM | rp1210_upload_ccal, Windows Open dialog and explicit confirmation |
+| CRC guard / protocol restrictions | Core controls these unchanged |
+| Transfer progress/errors | Separate native worker and synchronized progress snapshot |
+| Configuration | Shared config_store.c, same config.toml |
+| Active-transfer exit guard | App defers closing until the worker is finished |
+
+The application does **not** include a new Windows protocol implementation. The GUI lives in main.c; native_bridge.c/.h isolate Win32 dialogs, threading and callbacks to avoid Win32/raylib name collisions.
+
+**Limitations:** This Windows x86 implementation has not yet been compiled in Windows CI or tested on hardware. Do not use for production ECM programming until bench validated. The raylib widget code can be reused on Linux/Android, but this target currently depends on the Windows RP1210 vendor DLL backend; porting the native bridge and transport remains separate work.
