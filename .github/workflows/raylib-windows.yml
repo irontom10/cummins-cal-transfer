@@ -1,0 +1,33 @@
+name: Raylib native Windows x86
+
+on:
+  push:
+    paths:
+      - 'src/windows/raylib/**'
+      - 'src/core/**'
+      - 'src/windows/native/**'
+      - 'build-raylib.bat'
+      - '.github/workflows/raylib-windows.yml'
+  pull_request:
+    paths:
+      - 'src/windows/raylib/**'
+      - 'src/core/**'
+      - 'src/windows/native/**'
+      - 'build-raylib.bat'
+      - '.github/workflows/raylib-windows.yml'
+
+jobs:
+  win32-raylib:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native x86 frontend
+        run: cmake -S src/windows/raylib -B build/raylib -G "Visual Studio 17 2022" -A Win32
+      - name: Build native x86 frontend
+        run: cmake --build build/raylib --config Release --parallel
+      - name: Publish executable for bench validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: CalibrationTransferRaylib-win-x86
+          path: build/raylib/app/Release/CalibrationTransferRaylib.exe
+          if-no-files-found: error

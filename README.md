@@ -99,6 +99,18 @@ build.bat win-forms
 
 The default is equivalent to `build.bat win-api`. Run only one target at a time because both publish to `build/app/CalibrationTransfer.exe`. The native front end has not yet been hardware-validated; do not use it for production ECM programming until verified on a test module.
 
+### Experimental raylib Windows UI
+
+An optional native C89 **raylib** frontend lives in [src/windows/raylib](src/windows/raylib). It has the same adapter discovery, J1939 settings, ECM download, guarded CCAL upload, progress and TOML settings behavior as the native Win32 UI, using the existing protocol core rather than a new implementation.
+
+On Windows with CMake and the x86 MSVC build tools, run:
+
+```bat
+build-raylib.bat
+```
+
+The result is built under `build/raylib/app/Release/CalibrationTransferRaylib.exe`, independently of `build.bat`. This frontend is **experimental and awaiting Windows CI and bench validation**. See [the raylib build guide](src/windows/raylib/README.md). It currently uses the Windows x86 RP1210 backend, not a Linux/Android RP1210 port.
+
 ### Android
 
 The Android port compiles the same C89 calibration/J1939 core with an Android RP1210 backend.
