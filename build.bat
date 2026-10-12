@@ -13,8 +13,8 @@ set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 
 set "FRONTEND=win-api"
 if not "%~1"=="" set "FRONTEND=%~1"
-if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-forms" (
-    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-forms].
+if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-forms" (
+    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-forms].
     goto :fail
 )
 
@@ -22,16 +22,28 @@ rem Standard WinAPI build remains self-contained with the static C runtime.
 rem win-api-tiny uses the shared MSVC runtime and needs its redistributable.
 set "NATIVE_UI=0"
 set "CRT_FLAG=/MT"
+set "OMIT_ICON=0"
 if /I "%FRONTEND%"=="win-api" set "NATIVE_UI=1"
 if /I "%FRONTEND%"=="win-api-tiny" (
     set "NATIVE_UI=1"
     set "CRT_FLAG=/MD"
+)
+if /I "%FRONTEND%"=="win-api-no-icon" (
+    set "NATIVE_UI=1"
+    set "OMIT_ICON=1"
+)
+if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
+    set "OMIT_ICON=1"
 )
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
 set "NATIVE=%BUILD%\native"
 set "APP=%BUILD%\app"
 set "TOOLS=%BUILD%\tools"
+set "WINAPI_RESOURCE=%OBJ%\win_api.res"
+if "%OMIT_ICON%"=="1" set "WINAPI_RESOURCE="
 
 rem The RP1210 side is x86, so force the Visual C++ toolchain to x86.
 if /I "%VSCMD_ARG_TGT_ARCH%"=="x86" goto :toolchain_ready
@@ -167,22 +179,25 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_WIN_API%\main.c"
     if errorlevel 1 goto :fail_from_obj
 
-    rem Preserve original icon artwork while dropping redundant 24/64/256 frames.
-    rem Compact PNG frames stay byte-identical; the source icon is unchanged.
-    powershell.exe -NoProfile -ExecutionPolicy Bypass ^
-        -File "%SRC_WIN_TOOLS%\compact-icon.ps1" ^
-        -InputPath "%SRC_WINDOWS%\caltool.ico" ^
-        -OutputPath "%OBJ%\compact\compact.ico"
-    if errorlevel 1 goto :fail_from_obj
+    if "%OMIT_ICON%"=="0" (
+        rem Preserve icon artwork while dropping redundant 24/64/256 frames.
+        powershell.exe -NoProfile -ExecutionPolicy Bypass ^
+            -File "%SRC_WIN_TOOLS%\compact-icon.ps1" ^
+            -InputPath "%SRC_WINDOWS%\caltool.ico" ^
+            -OutputPath "%OBJ%\compact\compact.ico"
+        if errorlevel 1 goto :fail_from_obj
 
-    > "%OBJ%\compact\win_api.rc" echo 101 ICON "compact.ico"
-    rc /nologo /I "%OBJ%\compact" /fo "%OBJ%\win_api.res" "%OBJ%\compact\win_api.rc"
-    if errorlevel 1 goto :fail_from_obj
+        > "%OBJ%\compact\win_api.rc" echo 101 ICON "compact.ico"
+        rc /nologo /I "%OBJ%\compact" /fo "%OBJ%\win_api.res" "%OBJ%\compact\win_api.rc"
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        echo [icon] No embedded icon resources requested.
+    )
 
     link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
         /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
         /OUT:"%APP%\CalibrationTransfer.exe" ^
-        main.obj "%OBJ%\win_api.res" ^
+        main.obj %WINAPI_RESOURCE% ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
@@ -223,6 +238,9 @@ echo Build complete ^(%FRONTEND%^):
 echo   build\app\CalibrationTransfer.exe
 echo   build\tools\crc_call.exe
 echo.
+if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
+    echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
+)
 if /I "%FRONTEND%"=="win-api-tiny" (
     echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
     echo       Choose build.bat win-api for the compact standalone EXE instead.
