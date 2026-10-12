@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [win-api-no-icon, win-api-tiny-no-icon]
+        mode: [win-api-no-icon, win-api-tiny-no-icon, win-api-clang-no-icon]
     steps:
       - uses: actions/checkout@v4
       - name: Build Windows x86 without icon
