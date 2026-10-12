@@ -1,6 +1,6 @@
 # Native WinAPI executable size
 
-This document covers the existing Windows x86 WinAPI frontend, NOT the separate raylib frontend. Work is on the experiment/winapi-microscopic branch; the raylib branch is untouched.
+This document covers the existing Windows x86 WinAPI frontend, not the opt-in raylib frontend. The default is now the smallest LLVM /MD no-icon target, while standalone MSVC and other UI variants are explicit choices.
 
 ## Measured binaries (Windows x86 Release, core identical to master)
 
@@ -26,10 +26,13 @@ These figures are uncompressed PE32 executable sizes, not ZIP archive sizes. The
 Windows with x86 MSVC C/C++ tools:
 
     build.bat
-    rem Builds: compact standalone WinAPI (/MT, no VC++ redistributable needed).
+    rem Default: LLVM clang-cl -Oz full LTO /MD, no icon (requires VC++ x86 runtime).
+
+    build.bat win-api
+    rem Opt-in: compact standalone WinAPI (/MT, no VC++ redistributable needed).
 
     build.bat win-api-tiny
-    rem Builds: smallest EXE (/MD, VC++ x86 redistributable required).
+    rem Opt-in: MSVC dynamic CRT with compact icon (/MD, VC++ x86 runtime required).
 
     build.bat win-api-no-icon
     rem Builds: /MT standalone, no icon resources (generic Windows icon).
@@ -38,13 +41,13 @@ Windows with x86 MSVC C/C++ tools:
     rem Builds: /MD runtime-linked, no icon resources (generic Windows icon).
 
     build.bat win-api-clang-no-icon
-    rem Experimental: clang-cl -Oz, LLVM full LTO, lld-link (Windows x86).
+    rem Explicit spelling of default: clang-cl -Oz, LLVM full LTO, lld-link (Windows x86).
     rem Requires LLVM clang-cl and lld-link on PATH and MSVC x86 build tools.
 
     build.bat win-forms
     rem Retains the independent legacy WinForms build path.
 
-Each command outputs build/app/CalibrationTransfer.exe. Build one target at a time: the output path is overwritten. The native RP1210 DLL, TOML DLL and CRC utility continue to build.
+Each command outputs build/app/CalibrationTransfer.exe. Build one target at a time: the output path is overwritten. GitHub CI publishes the default tiny Windows binary as an EXE directly under builds/latest, not a ZIP. The native RP1210 DLL, TOML DLL and CRC utility continue to build.
 
 ## How this works
 

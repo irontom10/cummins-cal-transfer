@@ -48,9 +48,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Build Windows x86
+      - name: Build default LLVM x86 WinAPI
         shell: cmd
         run: build.bat
+
+      - name: Verify default executable size
+        shell: pwsh
+        run: |
+          $exe = Get-Item 'build/app/CalibrationTransfer.exe'
+          Write-Host ("Default WinAPI EXE: {0:N0} bytes" -f $exe.Length)
+          if ($exe.Length -gt 102400) { throw "Default EXE should be the compact LLVM x86 build (under 100 KiB)." }
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
@@ -158,27 +165,25 @@ jobs:
           rm -rf builds/latest
           mkdir -p builds/latest
 
-          # GitHub rejects individual Git blobs larger than 100 MiB.
-          # Keep the normal EXE inside the archive; users just unzip and run it.
+          # The default LLVM x86 EXE is small enough to commit directly.
+          # The file here is the actual runnable binary, not a ZIP wrapper.
           cp latest-input/windows/CalibrationTransfer.exe \
             builds/latest/CalibrationTransfer-win-x86.exe
-          (cd builds/latest && zip -9 CalibrationTransfer-win-x86.zip CalibrationTransfer-win-x86.exe)
-          rm builds/latest/CalibrationTransfer-win-x86.exe
 
           cp latest-input/android/app-debug.apk \
             builds/latest/CalibrationTransfer-android.apk
 
           (
             cd builds/latest
-            sha256sum CalibrationTransfer-win-x86.zip \
-              > CalibrationTransfer-win-x86.zip.sha256
+            sha256sum CalibrationTransfer-win-x86.exe \
+              > CalibrationTransfer-win-x86.exe.sha256
             sha256sum CalibrationTransfer-android.apk \
               > CalibrationTransfer-android.apk.sha256
           )
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f builds/latest
+          git add -A -f -- builds/latest
 
           if git diff --cached --quiet; then
             echo "builds/latest is already current."
