@@ -132,19 +132,38 @@ if errorlevel 1 goto :fail_from_obj
 popd
 
 if /I "%FRONTEND%"=="win-api" (
-    echo [4/4] Linking native Win32 application ^(no .NET^)...
-    pushd "%OBJ%"
+    echo [4/4] Building compact native Win32 application ^(no .NET^)...
+    rem DLL exports must not leak into the statically linked EXE.
+    rem Separate object files retain the exported DLLs and CRC tool unchanged.
+    mkdir "%OBJ%\compact"
+    if errorlevel 1 goto :fail
+    pushd "%OBJ%\compact"
 
-    cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /c ^
-        /Fo:win_api.obj "%SRC_WIN_API%\main.c"
+    rem Compile all objects with whole-program and size-first optimization.
+    rem Retain the static MSVC CRT, normal startup, DEP and ASLR.
+    cl /nologo /W3 /O1 /GL /Gy /Gw /GF /MT /TC /D_CRT_SECURE_NO_WARNINGS ^
+        /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
+        /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+        "%SRC_WIN_NATIVE%\rp1210scan.c" ^
+        "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
+        "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_platform.c" ^
+        "%SRC_CORE%\clip_transfer.c" ^
+        "%SRC_CORE%\echo_transfer.c" ^
+        "%SRC_CORE%\clip_crypto.c" ^
+        "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\ccal_crc.c" ^
+        "%SRC_CORE%\config_store.c" ^
+        "%SRC_WIN_API%\main.c"
     if errorlevel 1 goto :fail_from_obj
 
     rc /nologo /I "%SRC_WINDOWS%" /fo "%OBJ%\win_api.res" "%SRC_WIN_API%\app.rc"
     if errorlevel 1 goto :fail_from_obj
 
     link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
+        /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
         /OUT:"%APP%\CalibrationTransfer.exe" ^
-        win_api.obj win_api.res ^
+        main.obj "%OBJ%\win_api.res" ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
