@@ -2,27 +2,24 @@
 
 This document covers the existing Windows x86 WinAPI frontend, NOT the separate raylib frontend. Work is on the experiment/winapi-microscopic branch; the raylib branch is untouched.
 
-## Measured binaries (Windows x86, MSVC Release)
+## Measured binaries (Windows x86 Release, core identical to master)
 
 | Build | Exact EXE size | KiB | Compared with baseline |
 | --- | ---: | ---: | ---: |
 | Original WinAPI executable | 338,944 bytes | 331.0 | Baseline |
-| Size-first whole-program optimization, original icon | 323,584 bytes | 316.0 | -4.5% |
-| Compact standalone /MT, reduced icon resource | **241,152 bytes** | **235.5** | **-28.9%** |
-| Optional runtime-linked /MD, reduced icon resource | **98,816 bytes** | **96.5** | **-70.8%** |
-| Standalone /MT, no icon | **209,408 bytes** | **204.5** | **-38.2%** |
-| Runtime-linked /MD, no icon | **69,632 bytes** | **68.0** | **-79.5%** |
-| Experimental Clang/LLVM /MD, no icon | **64,512 bytes** | **63.0** | **-81.0%** |
+| Compact standalone /MT, reduced icon resource | **242,688 bytes** | **237.0** | **-28.4%** |
+| Runtime-linked /MD, reduced icon resource | **99,840 bytes** | **97.5** | **-70.5%** |
+| Standalone /MT, no icon | **210,944 bytes** | **206.0** | **-37.8%** |
+| Runtime-linked /MD, no icon | **70,656 bytes** | **69.0** | **-79.2%** |
+| Experimental Clang/LLVM /MD, no icon | **66,048 bytes** | **64.5** | **-80.5%** |
 
 Measured from GitHub Actions artifacts:
 - Original: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38205690636
-- Size-first LTCG: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207140241
-- Compact standalone: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207318006
-- Tiny runtime-linked: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207474326
-- Icon-free MSVC variants: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38207946064
-- Icon-free Clang/LLVM variant: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38208271885
+- Current standalone /MT (icon): https://github.com/irontom10/cummins-cal-transfer/actions/runs/38209013714
+- Current tiny /MD (icon): https://github.com/irontom10/cummins-cal-transfer/actions/runs/38209013845
+- Current no-icon MSVC and LLVM variants: https://github.com/irontom10/cummins-cal-transfer/actions/runs/38209013956
 
-These figures are uncompressed PE32 executable sizes, not ZIP archive sizes. Numbers are specific to the named source revisions.
+These figures are uncompressed PE32 executable sizes, not ZIP archive sizes. The measurements shown here were retested after reverting all src/core/ changes; the earlier, slightly smaller results with modified export headers are intentionally excluded.
 
 ## Build commands
 
@@ -52,7 +49,7 @@ Each command outputs build/app/CalibrationTransfer.exe. Build one target at a ti
 ## How this works
 
 1. The EXE uses a separate optimized object set. The separately built RP1210 and TOML DLLs keep their existing exported ABI.
-2. Static-link-specific preprocessor flags prevent 20 unnecessary exported functions from being retained in the EXE.
+2. All files under src/core/ are byte-for-byte identical to master. Existing DLL export declarations are retained in the EXE; this costs approximately 1–1.5 KiB compared with the earlier experimental header modifications.
 3. Size-first /O1 /GL /Gy /Gw /GF and /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO optimize the program and discard unused functions.
 4. The original ICO has seven PNG frames and occupies about 111 KiB. src/windows/tools/compact-icon.ps1 copies the 16, 32, 48, and 128 pixel frames byte-for-byte, reducing resources to roughly 29 KiB without changing artwork or overwriting the source icon. The 256px frame is omitted; Windows may upscale 128px for very large icons.
 5. Both optional no-icon modes omit the Win32 ICON resource but keep all application functionality. The Windows titlebar/taskbar use a generic icon. The regular build remains unchanged.
@@ -67,6 +64,7 @@ The compact build retains ASLR (DYNAMIC_BASE), DEP (NX_COMPAT), normal CRT initi
 - [x] Tiny dynamic-CRT WinAPI compiled in Windows x86 CI
 - [x] Both MSVC icon-free variants compiled in Windows x86 CI
 - [x] Clang/LLVM -Oz LTO icon-free x86 EXE compiled in Windows CI
+- [x] Core headers and implementation exactly match master (zero src/core/ diff)
 - [x] Existing native protocol tests passed in CI
 - [x] Existing Android build passed in CI
 - [x] Verified PE imports, exports, security flags and icon resources of the built binaries
