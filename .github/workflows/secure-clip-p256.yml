@@ -13,6 +13,8 @@ jobs:
         run: |
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_poc_test.c src/core/clip46_poc_secure.c -o /tmp/clip46_aes
           /tmp/clip46_aes
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/da00_sendkey_test.c src/core/da00_sendkey.c src/core/clip46_poc_secure.c -o /tmp/da00_sendkey
+          /tmp/da00_sendkey
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_p256_test.c src/core/clip46_poc_secure.c src/core/clip46_p256.c -o /tmp/clip46_p256
           /tmp/clip46_p256
   windows-x86:
@@ -29,6 +31,8 @@ jobs:
           clip46_p256_test.exe
           cl /nologo /W3 /TC /Isrc\core tests\clip46_poc_test.c src\core\clip46_poc_secure.c /Fe:clip46_aes_test.exe /link advapi32.lib
           clip46_aes_test.exe
+          cl /nologo /W3 /TC /Isrc\core tests\da00_sendkey_test.c src\core\da00_sendkey.c src\core\clip46_poc_secure.c /Fe:da00_sendkey_test.exe /link advapi32.lib
+          da00_sendkey_test.exe
   android-ndk-c90:
     runs-on: ubuntu-latest
     steps:
@@ -38,4 +42,5 @@ jobs:
           NDK=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           "$CC" -std=c90 -Wall -Wextra -Isrc/core -c src/core/clip46_poc_secure.c -o /tmp/clip46_aes_android.o
+          "$CC" -std=c90 -Wall -Wextra -Isrc/core -c src/core/da00_sendkey.c -o /tmp/da00_sendkey_android.o
           "$CC" -std=c90 -Wall -Wextra -Isrc/core -c src/core/clip46_p256.c -o /tmp/clip46_p256_android.o
