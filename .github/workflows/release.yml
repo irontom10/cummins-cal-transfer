@@ -30,9 +30,16 @@ jobs:
           }
           "RELEASE_TAG=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Build Windows x86
+      - name: Build default LLVM x86 WinAPI
         shell: cmd
         run: build.bat
+
+      - name: Verify default executable size
+        shell: pwsh
+        run: |
+          $exe = Get-Item 'build/app/CalibrationTransfer.exe'
+          Write-Host ("Default WinAPI EXE: {0:N0} bytes" -f $exe.Length)
+          if ($exe.Length -gt 102400) { throw "Default EXE should be the compact LLVM x86 build (under 100 KiB)." }
 
       - name: Prepare Windows release asset
         shell: pwsh
@@ -202,23 +209,12 @@ jobs:
           mkdir -p builds/latest
           cp release-assets/* builds/latest/
 
-          # The Windows self-contained executable can exceed GitHub's
-          # 100 MiB git-blob limit. Keep the full EXE as a release asset,
-          # but publish its ZIP and checksum in the tracked latest directory.
-          windows_exe="builds/latest/CalibrationTransfer-$RELEASE_TAG-win-x86.exe"
-          if [ -f "$windows_exe" ]; then
-            (
-              cd builds/latest
-              zip -9 "CalibrationTransfer-$RELEASE_TAG-win-x86.zip" "CalibrationTransfer-$RELEASE_TAG-win-x86.exe"
-              sha256sum "CalibrationTransfer-$RELEASE_TAG-win-x86.zip" \
-                > "CalibrationTransfer-$RELEASE_TAG-win-x86.zip.sha256"
-            )
-            rm "$windows_exe" "$windows_exe.sha256"
-          fi
+          # The small default Windows EXE and its SHA-256 are committed
+          # directly, matching the separately uploaded GitHub Release asset.
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f builds/latest
+          git add -A -f -- builds/latest
 
           if git diff --cached --quiet; then
             echo "Latest build files are already current."
