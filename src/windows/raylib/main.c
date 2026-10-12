@@ -59,6 +59,19 @@ struct app_state {
 };
 
 static struct app_state g;
+static Font g_ui_font;
+static int g_custom_font;
+static char g_font_path[PATH_CAP];
+
+/* Prefer the true mono Nerd Font variant; both carry patched icon glyphs. */
+static const char *g_font_names[] = {
+    "JetBrainsMonoNerdFontMono-Regular.ttf",
+    "JetBrainsMonoNerdFont-Regular.ttf",
+    "JetBrainsMonoNerdFontPropo-Regular.ttf"
+};
+
+#define FONT_SPACING 0.5f
+
 
 static const int baud_values[] = { 0, 125000, 250000, 500000, 1000000 };
 static const char *baud_names[] = { "Auto", "125000", "250000", "500000", "1000000" };
@@ -98,6 +111,111 @@ clamp_int(int value, int min_value, int max_value)
     if (value > max_value)
         return max_value;
     return value;
+}
+
+
+/*
+ * raylib's default DrawText/MeasureText always use its bitmap font.
+ * All text in this frontend instead goes through DrawTextEx/MeasureTextEx
+ * so layout and display use exactly the same JetBrains Mono font.
+ */
+static void
+ui_draw_text(const char *text, int x, int y, int size, Color tint)
+{
+    Vector2 position;
+    position.x = (float)x;
+    position.y = (float)y;
+    DrawTextEx(g_ui_font, text, position, (float)size, FONT_SPACING, tint);
+}
+
+static int
+ui_measure_text(const char *text, int size)
+{
+    Vector2 dimensions;
+    dimensions = MeasureTextEx(g_ui_font, text, (float)size, FONT_SPACING);
+    return (int)(dimensions.x + 0.5f);
+}
+
+static int
+try_load_font(const char *path)
+{
+    Font candidate;
+    int codepoints[98];
+    int i;
+    if (path == NULL || path[0] == '\0' || !FileExists(path))
+        return 0;
+    for (i = 0; i < 95; ++i)
+        codepoints[i] = 32 + i;
+    /* Nerd Font / Font Awesome glyphs: download, upload, refresh. */
+    codepoints[95] = 0xF019;
+    codepoints[96] = 0xF093;
+    codepoints[97] = 0xF021;
+    candidate = LoadFontEx(path, 40, codepoints, 98);
+    if (!IsFontValid(candidate) || candidate.texture.id == 0)
+        return 0;
+    g_ui_font = candidate;
+    g_custom_font = 1;
+    copy_text(g_font_path, path, sizeof(g_font_path));
+    SetTextureFilter(g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
+    return 1;
+}
+
+static int
+try_font_directory(const char *directory, const char *subdirectory)
+{
+    char root[PATH_CAP];
+    char candidate[PATH_CAP];
+    size_t length;
+    size_t extra;
+    int i;
+    if (directory == NULL || directory[0] == '\0')
+        return 0;
+    extra = (subdirectory != NULL) ? strlen(subdirectory) : 0U;
+    length = strlen(directory);
+    if (length + extra + 3U >= sizeof(root))
+        return 0;
+    copy_text(root, directory, sizeof(root));
+    if (length > 0U && root[length - 1U] != '\\' &&
+        root[length - 1U] != '/')
+        strcat(root, "\\");
+    if (subdirectory != NULL)
+        strcat(root, subdirectory);
+    for (i = 0; i < (int)(sizeof(g_font_names) / sizeof(g_font_names[0])); ++i) {
+        if (strlen(root) + strlen(g_font_names[i]) >= sizeof(candidate))
+            continue;
+        copy_text(candidate, root, sizeof(candidate));
+        strcat(candidate, g_font_names[i]);
+        if (try_load_font(candidate))
+            return 1;
+    }
+    return 0;
+}
+
+static void
+load_ui_font(void)
+{
+    const char *environment_font;
+    char config_font[PATH_CAP];
+    g_ui_font = GetFontDefault();
+    g_custom_font = 0;
+    g_font_path[0] = '\0';
+
+    environment_font = getenv("CALTRANSFER_FONT");
+    if (try_load_font(environment_font))
+        return;
+    config_font[0] = '\0';
+    if (g.config_loaded) {
+        ct_config_get_string("ui", "font_path", "", config_font,
+                             sizeof(config_font));
+        if (try_load_font(config_font))
+            return;
+    }
+    if (try_font_directory(GetApplicationDirectory(), "fonts\\") ||
+        try_font_directory(GetApplicationDirectory(), "") ||
+        try_font_directory(getenv("LOCALAPPDATA"), "Microsoft\\Windows\\Fonts\\") ||
+        try_font_directory(getenv("WINDIR"), "Fonts\\"))
+        return;
+    /* If not installed, keep rendering with raylib's bundled font. */
 }
 
 static const char *
@@ -428,11 +546,11 @@ draw_trimmed(const char *s, int x, int y, int max_width, int size, Color color)
     size_t n;
     copy_text(short_text, s, sizeof(short_text));
     n = strlen(short_text);
-    while (n > 0U && MeasureText(short_text, size) > max_width) {
+    while (n > 0U && ui_measure_text(short_text, size) > max_width) {
         --n;
         short_text[n] = '\0';
     }
-    DrawText(short_text, x, y, size, color);
+    ui_draw_text(short_text, x, y, size, color);
 }
 
 static void
@@ -465,8 +583,8 @@ draw_wrapped(const char *text, int x, int y, int max_width,
                     copy_text(candidate, word, sizeof(candidate));
                 else
                     sprintf(candidate, "%.240s %.240s", line, word);
-                if (line_len > 0 && MeasureText(candidate, size) > max_width) {
-                    DrawText(line, x, y + lines * (size + 7), size, color);
+                if (line_len > 0 && ui_measure_text(candidate, size) > max_width) {
+                    ui_draw_text(line, x, y + lines * (size + 7), size, color);
                     ++lines;
                     if (lines >= max_lines)
                         return;
@@ -478,7 +596,7 @@ draw_wrapped(const char *text, int x, int y, int max_width,
             }
             if (newline || ch == '\0') {
                 if (line_len > 0 || newline) {
-                    DrawText(line, x, y + lines * (size + 7), size, color);
+                    ui_draw_text(line, x, y + lines * (size + 7), size, color);
                     ++lines;
                     if (lines >= max_lines)
                         return;
@@ -517,7 +635,7 @@ button(Rectangle r, const char *title, int active, int accent)
     DrawRectangleRoundedLinesEx(r, 0.17f, 8, 1.0f,
                                  paint(active ? 0x59718FFF : 0x343E4DFF));
     size = 19;
-    DrawText(title, (int)(r.x + (r.width - MeasureText(title, size)) / 2),
+    ui_draw_text(title, (int)(r.x + (r.width - ui_measure_text(title, size)) / 2),
              (int)(r.y + (r.height - size) / 2), size,
              paint(active ? 0xF1F6FFFF : 0x79869AFF));
     return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
@@ -603,7 +721,7 @@ draw_combo(int id)
     draw_trimmed(label, (int)r.x + 16, (int)r.y + 12,
                  (int)r.width - 55, 18,
                  paint(enabled ? 0xE7EFFAFF : 0x8490A4FF));
-    DrawText("v", (int)(r.x + r.width - 29), (int)r.y + 12, 19,
+    ui_draw_text("v", (int)(r.x + r.width - 29), (int)r.y + 12, 19,
              paint(0x8BA8CBFF));
     if (hovered && g.open_combo == COMBO_NONE &&
         IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -670,7 +788,7 @@ draw_dropdown(void)
         }
     }
     if (count > shown)
-        DrawText("Scroll for more", (int)menu.x + (int)menu.width - 155,
+        ui_draw_text("Scroll for more", (int)menu.x + (int)menu.width - 155,
                  (int)menu.y + (int)menu.height + 3, 12, paint(0x8398B6FF));
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
         !hit(menu) && !hit(owner))
@@ -690,7 +808,7 @@ edit_sa(Rectangle r, char *value, int focus_id)
         g.focus = focus_id;
     box(r, g.focus == focus_id ? 0x253651FF : 0x182338FF,
         g.focus == focus_id ? 0x61A6FFFF : 0x3B4B64FF);
-    DrawText(value, (int)r.x + 17, (int)r.y + 12, 20, paint(0xE7EFFAFF));
+    ui_draw_text(value, (int)r.x + 17, (int)r.y + 12, 20, paint(0xE7EFFAFF));
     if (g.focus == focus_id && active && g.open_combo == COMBO_NONE) {
         if (IsKeyPressed(KEY_BACKSPACE)) {
             n = strlen(value);
@@ -708,7 +826,7 @@ edit_sa(Rectangle r, char *value, int focus_id)
                 value[n + 1U] = '\0';
             }
         }
-        DrawRectangle((int)r.x + 18 + MeasureText(value, 20),
+        DrawRectangle((int)r.x + 18 + ui_measure_text(value, 20),
                       (int)r.y + 11, 2, 23, paint(0x7EB3FFFF));
     }
 }
@@ -724,7 +842,7 @@ draw_modal(void)
     DrawRectangle(0, 0, WIDTH, HEIGHT, paint(0x040913D9));
     panel = rect(175, 206, 650, 340);
     box(panel, 0x1D2A3FFF, 0x55708FFF);
-    DrawText(g.modal_title, 207, 237, 26, paint(0xF6F9FFFF));
+    ui_draw_text(g.modal_title, 207, 237, 26, paint(0xF6F9FFFF));
     DrawRectangle(207, 280, 584, 1, paint(0x44546BFF));
     draw_wrapped(g.modal_text, 207, 304, 575, 17, 6,
                  paint(0xCFDBEAFF));
@@ -755,48 +873,57 @@ draw_screen(void)
     ClearBackground(paint(0x0B1322FF));
     DrawRectangle(0, 0, WIDTH, 92, paint(0x121F32FF));
     DrawRectangle(0, 90, WIDTH, 2, paint(0x33557BFF));
-    DrawText("CALIBRATION TRANSFER", 43, 27, 28, paint(0xF1F6FFFF));
-    DrawText("RAYLIB  /  NATIVE RP1210  /  J1939", 45, 64, 13,
+    ui_draw_text("CALIBRATION TRANSFER", 43, 27, 28, paint(0xF1F6FFFF));
+    ui_draw_text("RAYLIB  /  NATIVE RP1210  /  J1939", 45, 64, 13,
              paint(0x80A6D1FF));
+    ui_draw_text(g_custom_font ? "FONT  JetBrains Mono Nerd" :
+                                  "FONT  default (Nerd Font not found)",
+                 695, 64, 13, paint(0x80A6D1FF));
 
     box(rect(33, 117, 934, 345), 0x152136FF, 0x2F4159FF);
-    DrawText("ADAPTER & BUS", 58, 137, 20, paint(0xEAF2FFFF));
-    DrawText("RP1210 vendor", 61, 190, 18, paint(0xB7CBE5FF));
+    ui_draw_text("ADAPTER & BUS", 58, 137, 20, paint(0xEAF2FFFF));
+    ui_draw_text("RP1210 vendor", 61, 190, 18, paint(0xB7CBE5FF));
     draw_combo(COMBO_API);
-    DrawText("RP1210 device", 61, 257, 18, paint(0xB7CBE5FF));
+    ui_draw_text("RP1210 device", 61, 257, 18, paint(0xB7CBE5FF));
     draw_combo(COMBO_DEVICE);
-    DrawText("Protocol", 61, 338, 18, paint(0xB7CBE5FF));
+    ui_draw_text("Protocol", 61, 338, 18, paint(0xB7CBE5FF));
     box(rect(165, 326, 198, 43), 0x1B293FFF, 0x394960FF);
-    DrawText("J1939", 185, 338, 18, paint(0xDFE9F5FF));
-    DrawText("Baud", 668, 338, 18, paint(0xB7CBE5FF));
+    ui_draw_text("J1939", 185, 338, 18, paint(0xDFE9F5FF));
+    ui_draw_text("Baud", 668, 338, 18, paint(0xB7CBE5FF));
     draw_combo(COMBO_BAUD);
 
-    DrawText("Tool SA", 61, 405, 18, paint(0xB7CBE5FF));
+    ui_draw_text("Tool SA", 61, 405, 18, paint(0xB7CBE5FF));
     edit_sa(rect(167, 393, 100, 43), g.tool_sa, FOCUS_TOOL);
-    DrawText("hex", 278, 405, 15, paint(0x7186A5FF));
-    DrawText("ECM SA", 361, 405, 18, paint(0xB7CBE5FF));
+    ui_draw_text("hex", 278, 405, 15, paint(0x7186A5FF));
+    ui_draw_text("ECM SA", 361, 405, 18, paint(0xB7CBE5FF));
     edit_sa(rect(466, 393, 100, 43), g.ecm_sa, FOCUS_ECM);
-    DrawText("hex", 579, 405, 15, paint(0x7186A5FF));
+    ui_draw_text("hex", 579, 405, 15, paint(0x7186A5FF));
     interactive = !g.busy && g.open_combo == COMBO_NONE &&
                   g.modal == MODAL_NONE;
-    if (button(rect(769, 393, 156, 43), "Refresh", interactive, 0)) {
+    if (button(rect(769, 393, 156, 43),
+               g_custom_font ? "\xEF\x80\xA1  Refresh" : "Refresh",
+               interactive, 0)) {
         refresh_devices(1);
         save_config();
     }
 
     box(rect(33, 481, 934, 119), 0x152136FF, 0x2F4159FF);
-    DrawText("CALIBRATION ACTIONS", 58, 500, 20,
+    ui_draw_text("CALIBRATION ACTIONS", 58, 500, 20,
              paint(0xEAF2FFFF));
     allow_actions = interactive && g.available_devices > 0;
     if (button(rect(59, 540, 426, 46),
-               "Pull ECM CAL  >  CCAL", allow_actions, 1))
+               g_custom_font ? "\xEF\x80\x99  Pull ECM CAL > CCAL" :
+                               "Pull ECM CAL  >  CCAL",
+               allow_actions, 1))
         prepare_transfer(0);
     if (button(rect(507, 540, 426, 46),
-               "Upload CCAL  >  ECM", allow_actions, 0))
+               g_custom_font ? "\xEF\x82\x93  Upload CCAL > ECM" :
+                               "Upload CCAL  >  ECM",
+               allow_actions, 0))
         prepare_transfer(1);
 
     box(rect(33, 619, 934, 111), 0x152136FF, 0x2F4159FF);
-    DrawText("TRANSFER STATUS", 58, 637, 18, paint(0xB8D0F0FF));
+    ui_draw_text("TRANSFER STATUS", 58, 637, 18, paint(0xB8D0F0FF));
     ct_native_snapshot(&snapshot);
     progress = g.busy ? snapshot.percent : (g.result_ok ? 100 : 0);
     progress = clamp_int(progress, 0, 100);
@@ -806,11 +933,11 @@ draw_screen(void)
         DrawRectangleRounded(rect(58, 676, 870.0f * progress / 100.0f, 14),
                              0.4f, 8, paint(0x428CDBFF));
     sprintf(info, "%d%%", progress);
-    DrawText(info, 877, 637, 20, paint(0xE8F4FFFF));
+    ui_draw_text(info, 877, 637, 20, paint(0xE8F4FFFF));
     draw_trimmed(g.busy ? snapshot.status : g.status,
                  59, 699, 871, 16, paint(0xB9CBDEFF));
     if (g.busy)
-        DrawText("TRANSFER RUNNING - DO NOT DISCONNECT OR POWER OFF",
+        ui_draw_text("TRANSFER RUNNING - DO NOT DISCONNECT OR POWER OFF",
                  368, 640, 13, paint(0xF8C778FF));
     draw_dropdown();
     draw_modal();
@@ -835,6 +962,7 @@ ct_raylib_main(void)
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
     read_config();
+    load_ui_font();
     refresh_devices(0);
     should_close = 0;
     while (!should_close) {
@@ -853,6 +981,8 @@ ct_raylib_main(void)
     save_config();
     if (g.config_loaded)
         ct_config_close();
+    if (g_custom_font)
+        UnloadFont(g_ui_font);
     CloseWindow();
     ct_native_shutdown();
     return 0;
