@@ -33,7 +33,7 @@ set "BUSLOG=bus_trace_%STAMP%.tsv"
 
 set "CLIP46_POC_FILE=%USERPROFILE%\Downloads\clip46-bench-local.cfg"
 set "CLIP46_POC_PULL=1"
-set "CLIP46_POC_FLASH=1"
+set "CLIP46_POC_FLASH="
 set "CLIP46_POC_CONN_ID="
 
 echo Config:  %CFG%
