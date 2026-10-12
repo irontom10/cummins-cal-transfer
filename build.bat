@@ -11,15 +11,17 @@ set "SRC_WIN_TOOLS=%SRC_WINDOWS%\tools"
 set "SRC_WIN_API=%SRC_WINDOWS%\win-api"
 set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 
-set "FRONTEND=win-api"
+rem Smallest WinAPI x86 executable is the default: LLVM /MD, no embedded icon.
+rem All alternate Windows UIs and build profiles require an explicit selector.
+set "FRONTEND=win-api-clang-no-icon"
 if not "%~1"=="" set "FRONTEND=%~1"
 if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-api-clang-no-icon" if /I not "%FRONTEND%"=="win-forms" (
     echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-api-clang-no-icon^|win-forms].
     goto :fail
 )
 
-rem Standard WinAPI build remains self-contained with the static C runtime.
-rem win-api-tiny uses the shared MSVC runtime and needs its redistributable.
+rem Default LLVM and tiny profiles use /MD and require the x86 VC++ runtime.
+rem The opt-in win-api and win-api-no-icon profiles retain the static /MT CRT.
 set "NATIVE_UI=0"
 set "CRT_FLAG=/MT"
 set "OMIT_ICON=0"
@@ -285,6 +287,10 @@ echo Build complete ^(%FRONTEND%^):
 echo   build\app\CalibrationTransfer.exe
 echo   build\tools\crc_call.exe
 echo.
+if /I "%FRONTEND%"=="win-api-clang-no-icon" (
+    echo NOTE: The default LLVM EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
+    echo       To build a standalone /MT executable, use build.bat win-api.
+)
 if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
     echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
 )
