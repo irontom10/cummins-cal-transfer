@@ -14,7 +14,7 @@ set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 set "FRONTEND=win-api"
 if not "%~1"=="" set "FRONTEND=%~1"
 if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-api-clang-no-icon" if /I not "%FRONTEND%"=="win-forms" (
-    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-forms].
+    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-api-clang-no-icon^|win-forms].
     goto :fail
 )
 
@@ -162,8 +162,8 @@ popd
 
 if "%NATIVE_UI%"=="1" (
     echo [4/4] Building compact native Win32 application ^(no .NET^)...
-    rem DLL exports must not leak into the statically linked EXE.
-    rem Separate object files retain the exported DLLs and CRC tool unchanged.
+    rem Separate optimized objects keep the original core headers and DLL exports unchanged.
+    rem Preserve the RP1210, config, and CRC utilities as built above.
     mkdir "%OBJ%\compact"
     if errorlevel 1 goto :fail
     pushd "%OBJ%\compact"
@@ -182,7 +182,7 @@ if "%NATIVE_UI%"=="1" (
             goto :fail_from_obj
         )
         clang-cl /nologo --target=i686-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=full /Gy /Gw /GF /MD /TC ^
-            /D_CRT_SECURE_NO_WARNINGS /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
+            /D_CRT_SECURE_NO_WARNINGS ^
             /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
         "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
@@ -198,7 +198,7 @@ if "%NATIVE_UI%"=="1" (
         if errorlevel 1 goto :fail_from_obj
     ) else (
         cl /nologo /W3 /O1 /GL /Gy /Gw /GF %CRT_FLAG% /TC /D_CRT_SECURE_NO_WARNINGS ^
-            /DRP1210_STATIC_LINK /DCT_CONFIG_STATIC_LINK ^
+            ^
             /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
         "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
