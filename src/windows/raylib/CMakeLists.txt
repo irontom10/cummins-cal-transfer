@@ -50,6 +50,6 @@ set_target_properties(CalibrationTransferRaylib PROPERTIES
 target_include_directories(CalibrationTransferRaylib PRIVATE
     "${CORE}" "${WIN_NATIVE}" "${CMAKE_CURRENT_LIST_DIR}")
 target_compile_definitions(CalibrationTransferRaylib PRIVATE
-    _CRT_SECURE_NO_WARNINGS CT_CONFIG_EXPORTS)
+    _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(CalibrationTransferRaylib PRIVATE
     raylib kernel32 user32 gdi32 comdlg32 winmm)
