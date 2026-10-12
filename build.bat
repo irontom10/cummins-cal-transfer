@@ -157,7 +157,16 @@ if /I "%FRONTEND%"=="win-api" (
         "%SRC_WIN_API%\main.c"
     if errorlevel 1 goto :fail_from_obj
 
-    rc /nologo /I "%SRC_WINDOWS%" /fo "%OBJ%\win_api.res" "%SRC_WIN_API%\app.rc"
+    rem Preserve original icon artwork while dropping redundant 24/64/256 frames.
+    rem Compact PNG frames stay byte-identical; the source icon is unchanged.
+    powershell.exe -NoProfile -ExecutionPolicy Bypass ^
+        -File "%SRC_WIN_TOOLS%\compact-icon.ps1" ^
+        -InputPath "%SRC_WINDOWS%\caltool.ico" ^
+        -OutputPath "%OBJ%\compact\compact.ico"
+    if errorlevel 1 goto :fail_from_obj
+
+    > "%OBJ%\compact\win_api.rc" echo 101 ICON "compact.ico"
+    rc /nologo /I "%OBJ%\compact" /fo "%OBJ%\win_api.res" "%OBJ%\compact\win_api.rc"
     if errorlevel 1 goto :fail_from_obj
 
     link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
