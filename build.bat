@@ -13,15 +13,44 @@ set "SRC_WIN_FORMS=%SRC_WINDOWS%\win-forms"
 
 set "FRONTEND=win-api"
 if not "%~1"=="" set "FRONTEND=%~1"
-if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-forms" (
-    echo ERROR: Expected build.bat [win-api^|win-forms].
+if /I not "%FRONTEND%"=="win-api" if /I not "%FRONTEND%"=="win-api-tiny" if /I not "%FRONTEND%"=="win-api-no-icon" if /I not "%FRONTEND%"=="win-api-tiny-no-icon" if /I not "%FRONTEND%"=="win-api-clang-no-icon" if /I not "%FRONTEND%"=="win-forms" (
+    echo ERROR: Expected build.bat [win-api^|win-api-tiny^|win-api-no-icon^|win-api-tiny-no-icon^|win-api-clang-no-icon^|win-forms].
     goto :fail
+)
+
+rem Standard WinAPI build remains self-contained with the static C runtime.
+rem win-api-tiny uses the shared MSVC runtime and needs its redistributable.
+set "NATIVE_UI=0"
+set "CRT_FLAG=/MT"
+set "OMIT_ICON=0"
+set "USE_CLANG=0"
+if /I "%FRONTEND%"=="win-api" set "NATIVE_UI=1"
+if /I "%FRONTEND%"=="win-api-tiny" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
+)
+if /I "%FRONTEND%"=="win-api-no-icon" (
+    set "NATIVE_UI=1"
+    set "OMIT_ICON=1"
+)
+if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
+    set "OMIT_ICON=1"
+)
+if /I "%FRONTEND%"=="win-api-clang-no-icon" (
+    set "NATIVE_UI=1"
+    set "CRT_FLAG=/MD"
+    set "OMIT_ICON=1"
+    set "USE_CLANG=1"
 )
 set "BUILD=%ROOT%\build"
 set "OBJ=%BUILD%\obj"
 set "NATIVE=%BUILD%\native"
 set "APP=%BUILD%\app"
 set "TOOLS=%BUILD%\tools"
+set "WINAPI_RESOURCE=%OBJ%\win_api.res"
+if "%OMIT_ICON%"=="1" set "WINAPI_RESOURCE="
 
 rem The RP1210 side is x86, so force the Visual C++ toolchain to x86.
 if /I "%VSCMD_ARG_TGT_ARCH%"=="x86" goto :toolchain_ready
@@ -131,25 +160,96 @@ if errorlevel 1 goto :fail_from_obj
 
 popd
 
-if /I "%FRONTEND%"=="win-api" (
-    echo [4/4] Linking native Win32 application ^(no .NET^)...
-    pushd "%OBJ%"
+if "%NATIVE_UI%"=="1" (
+    echo [4/4] Building compact native Win32 application ^(no .NET^)...
+    rem Separate optimized objects keep the original core headers and DLL exports unchanged.
+    rem Preserve the RP1210, config, and CRC utilities as built above.
+    mkdir "%OBJ%\compact"
+    if errorlevel 1 goto :fail
+    pushd "%OBJ%\compact"
 
-    cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /c ^
-        /Fo:win_api.obj "%SRC_WIN_API%\main.c"
-    if errorlevel 1 goto :fail_from_obj
+    rem Compile all objects with whole-program and size-first optimization.
+    rem Standard mode retains static CRT; tiny mode uses /MD. Both retain DEP/ASLR.
+    if "%USE_CLANG%"=="1" (
+        where clang-cl.exe >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: clang-cl.exe required for LLVM experiment.
+            goto :fail_from_obj
+        )
+        where lld-link.exe >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: lld-link.exe required for LLVM experiment.
+            goto :fail_from_obj
+        )
+        clang-cl /nologo --target=i686-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=full /Gy /Gw /GF /MD /TC ^
+            /D_CRT_SECURE_NO_WARNINGS ^
+            /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+        "%SRC_WIN_NATIVE%\rp1210scan.c" ^
+        "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
+        "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_platform.c" ^
+        "%SRC_CORE%\clip_transfer.c" ^
+        "%SRC_CORE%\echo_transfer.c" ^
+        "%SRC_CORE%\clip_crypto.c" ^
+        "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\ccal_crc.c" ^
+        "%SRC_CORE%\config_store.c" ^
+        "%SRC_WIN_API%\main.c"
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        cl /nologo /W3 /O1 /GL /Gy /Gw /GF %CRT_FLAG% /TC /D_CRT_SECURE_NO_WARNINGS ^
+            ^
+            /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
+        "%SRC_WIN_NATIVE%\rp1210scan.c" ^
+        "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
+        "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_platform.c" ^
+        "%SRC_CORE%\clip_transfer.c" ^
+        "%SRC_CORE%\echo_transfer.c" ^
+        "%SRC_CORE%\clip_crypto.c" ^
+        "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\ccal_crc.c" ^
+        "%SRC_CORE%\config_store.c" ^
+        "%SRC_WIN_API%\main.c"
+        if errorlevel 1 goto :fail_from_obj
+    )
 
-    rc /nologo /I "%SRC_WINDOWS%" /fo "%OBJ%\win_api.res" "%SRC_WIN_API%\app.rc"
-    if errorlevel 1 goto :fail_from_obj
+    if "%OMIT_ICON%"=="0" (
+        rem Preserve icon artwork while dropping redundant 24/64/256 frames.
+        powershell.exe -NoProfile -ExecutionPolicy Bypass ^
+            -File "%SRC_WIN_TOOLS%\compact-icon.ps1" ^
+            -InputPath "%SRC_WINDOWS%\caltool.ico" ^
+            -OutputPath "%OBJ%\compact\compact.ico"
+        if errorlevel 1 goto :fail_from_obj
 
-    link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
-        /OUT:"%APP%\CalibrationTransfer.exe" ^
-        win_api.obj win_api.res ^
+        > "%OBJ%\compact\win_api.rc" echo 101 ICON "compact.ico"
+        rc /nologo /I "%OBJ%\compact" /fo "%OBJ%\win_api.res" "%OBJ%\compact\win_api.rc"
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        echo [icon] No embedded icon resources requested.
+    )
+
+    if "%USE_CLANG%"=="1" (
+        lld-link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
+            /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT ^
+            /OUT:"%APP%\CalibrationTransfer.exe" ^
+        main.obj %WINAPI_RESOURCE% ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
-    if errorlevel 1 goto :fail_from_obj
+        if errorlevel 1 goto :fail_from_obj
+    ) else (
+        link /nologo /MACHINE:X86 /SUBSYSTEM:WINDOWS ^
+            /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
+            /OUT:"%APP%\CalibrationTransfer.exe" ^
+        main.obj %WINAPI_RESOURCE% ^
+        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
+        ct_platform.obj clip_transfer.obj echo_transfer.obj ^
+        clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
+        kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
+        if errorlevel 1 goto :fail_from_obj
+    )
 
     popd
     goto :complete
@@ -185,6 +285,13 @@ echo Build complete ^(%FRONTEND%^):
 echo   build\app\CalibrationTransfer.exe
 echo   build\tools\crc_call.exe
 echo.
+if /I "%FRONTEND%"=="win-api-tiny-no-icon" (
+    echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
+)
+if /I "%FRONTEND%"=="win-api-tiny" (
+    echo NOTE: The tiny EXE uses /MD and requires the Microsoft VC++ x86 Redistributable.
+    echo       Choose build.bat win-api for the compact standalone EXE instead.
+)
 echo Native/intermediate files are also contained under build\.
 exit /b 0
 

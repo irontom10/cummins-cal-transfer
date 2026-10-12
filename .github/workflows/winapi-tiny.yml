@@ -1,0 +1,43 @@
+name: WinAPI tiny x86
+
+on:
+  push:
+    branches:
+      - experiment/winapi-microscopic
+    paths:
+      - 'build.bat'
+      - 'src/core/**'
+      - 'src/windows/win-api/**'
+      - 'src/windows/native/**'
+      - 'src/windows/tools/compact-icon.ps1'
+      - '.github/workflows/winapi-tiny.yml'
+  pull_request:
+    paths:
+      - 'build.bat'
+      - 'src/core/**'
+      - 'src/windows/win-api/**'
+      - 'src/windows/native/**'
+      - 'src/windows/tools/compact-icon.ps1'
+      - '.github/workflows/winapi-tiny.yml'
+
+jobs:
+  dynamic-crt:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build minimal runtime-linked WinAPI x86
+        shell: cmd
+        run: build.bat win-api-tiny
+      - name: Report exact executable size
+        shell: pwsh
+        run: |
+          $exe = Get-Item 'build/app/CalibrationTransfer.exe'
+          Write-Host ("Dynamic CRT executable: {0:N0} bytes ({1:N2} KiB)" -f $exe.Length, ($exe.Length / 1KB))
+          "### Native WinAPI (dynamic CRT)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          ("**{0:N0} bytes** ({1:N2} KiB)" -f $exe.Length, ($exe.Length / 1KB)) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - name: Upload dynamic CRT executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CalibrationTransfer-winapi-tiny-x86-needs-vc-runtime
+          path: build/app/CalibrationTransfer.exe
+          if-no-files-found: error

@@ -85,6 +85,12 @@ build.bat
 
 The default build uses plain Win32 controls, native common file dialogs, an asynchronous transfer worker, and direct C linkage to the existing protocol, RP1210, and TOML configuration code. The resulting executable does not load the CLR and does not require a .NET installation. The x86 target remains necessary for the 32-bit RP1210 vendor DLLs.
 
+The default WinAPI binary is now optimized for size using the static MSVC runtime. For an even smaller executable, there is also an optional **runtime-linked** x86 build:
+
+    build.bat win-api-tiny
+
+This alternate target requires the compatible Microsoft Visual C++ **x86** Redistributable on the target Windows machine; the normal build does not. Both use the identical calibration and RP1210 implementation. See [measured WinAPI executable sizes](docs/winapi-binary-size.md) for details, validation status, and tradeoffs.
+
 To build the retained legacy WinForms UI instead (requires the .NET 10 SDK):
 
 ```bat
