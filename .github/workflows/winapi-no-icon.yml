@@ -1,0 +1,48 @@
+name: WinAPI icon size experiment
+
+on:
+  push:
+    branches:
+      - experiment/winapi-microscopic
+    paths:
+      - 'build.bat'
+      - 'src/windows/win-api/**'
+      - 'src/core/**'
+      - 'src/windows/native/**'
+      - '.github/workflows/winapi-no-icon.yml'
+  pull_request:
+    paths:
+      - 'build.bat'
+      - 'src/windows/win-api/**'
+      - 'src/core/**'
+      - 'src/windows/native/**'
+      - '.github/workflows/winapi-no-icon.yml'
+
+jobs:
+  compare:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [win-api-no-icon, win-api-tiny-no-icon]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Windows x86 without icon
+        shell: cmd
+        run: build.bat ${{ matrix.mode }}
+      - name: Report uncompressed EXE size
+        shell: pwsh
+        run: |
+          $p = 'build/app/CalibrationTransfer.exe'
+          $exe = Get-Item $p
+          Write-Host "MODE=${{ matrix.mode }}"
+          Write-Host "SIZE_BYTES=$($exe.Length)"
+          Write-Host "SIZE_KIB=$([math]::Round($exe.Length / 1024, 2))"
+          "### ${{ matrix.mode }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "**$($exe.Length) bytes** ($([math]::Round($exe.Length/1024, 2)) KiB)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      - name: Publish exact executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CalibrationTransfer-${{ matrix.mode }}-x86
+          path: build/app/CalibrationTransfer.exe
+          if-no-files-found: error
