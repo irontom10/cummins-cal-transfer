@@ -746,7 +746,7 @@ draw_modal(void)
 static void
 draw_screen(void)
 {
-    struct worker_snapshot snapshot;
+    struct ct_transfer_status snapshot;
     int interactive;
     int allow_actions;
     char info[160];
