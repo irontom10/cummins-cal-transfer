@@ -2,12 +2,7 @@
 #define RP1210SCAN_H
 
 #ifdef _WIN32
-/* Native frontends link the protocol statically, not as exported DLL APIs. */
-#ifdef RP1210_STATIC_LINK
-#define RP1210_EXPORT
-#else
 #define RP1210_EXPORT __declspec(dllexport)
-#endif
 #define RP1210_CALL __cdecl
 #else
 #define RP1210_EXPORT
