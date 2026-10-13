@@ -30,6 +30,14 @@
 
 #include "clip_crypto.h"
 
+/* Iterates fully CRC-verified CCAL regions without legacy 24-bit limits.
+ * Callback returns 0 to continue or nonzero to abort. */
+typedef int (*clip_cal_region_visitor)(void *user, unsigned long address,
+                                       const unsigned char *bytes,
+                                       unsigned long length);
+int clip_cal_visit_ccal_regions(const char *filename,
+                                clip_cal_region_visitor visitor, void *user);
+
 #define CLIP_CAL_OK                 CLIP_OK
 #define CLIP_CAL_ERR_ARGUMENT       CLIP_ERR_ARGUMENT
 #define CLIP_CAL_ERR_BUFFER         CLIP_ERR_BUFFER

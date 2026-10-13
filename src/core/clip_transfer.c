@@ -19,6 +19,8 @@
 #include "clip_crypto.h"
 #include "clip46_poc_secure.h"
 #include "clip46_p256.h"
+#include "clip46_runtime.h"
+#include "clip46_plan.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
 #include "ct_platform.h"
@@ -148,6 +150,7 @@ struct pull_ctx {
 };
 
 static char g_last_error[512];
+static struct clip46_runtime g_clip46_options;
 
 static void
 safe_copy(char *dst, const char *src, size_t dst_size)
@@ -473,7 +476,6 @@ clip_send_open(struct pull_ctx *ctx)
     clip_u8 request[9];
     clip_u8 reply[CLIP_WIRE_MAX];
     size_t reply_len;
-    const char *experiment;
     int rc;
 
     request[0] = 0x81U;
@@ -492,8 +494,7 @@ clip_send_open(struct pull_ctx *ctx)
      * correctly refused to send an application request.
      */
     request[3] = 0x01U;
-    experiment = getenv("CLIP46_POC_FILE");
-    if (experiment != NULL && experiment[0] != '\0')
+    if (g_clip46_options.secure_read)
         request[3] = 0x03U;
     request[4] = 0xffU;
     request[5] = 0x01U;
@@ -975,7 +976,6 @@ clip_exchange(struct pull_ctx *ctx,
          */
         if (expected0 == 0x02U && check_expected1 &&
             expected1 == 0x04U) {
-            const char *override_id;
             /*
              * No universal application connection ID is established yet.
              * We require an explicit local override for post-02 04 trials.
@@ -983,19 +983,8 @@ clip_exchange(struct pull_ctx *ctx,
              * bookkeeping; it is not the app session ID.
              */
             ctx->session_id = incoming[4];
-            override_id = getenv("CLIP46_POC_CONN_ID");
-            if (override_id != NULL && override_id[0] != '\0') {
-                char *endp;
-                unsigned long n;
-                n = strtoul(override_id, &endp, 0);
-                if (endp == override_id || *endp != '\0' ||
-                    n == 0UL || n > 255UL) {
-                    set_last_error_text(
-                        "CLIP46_POC_CONN_ID must be an integer 1..255.");
-                    return PULL_ERR_ARGUMENT;
-                }
-                ctx->session_id = (clip_u8)n;
-            }
+            if (g_clip46_options.conn_override != 0U)
+                ctx->session_id = (clip_u8)g_clip46_options.conn_override;
         } else {
             ctx->session_id = incoming[4];
         }
@@ -1059,7 +1048,6 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     struct clip_secure_seed_reply seed;
     struct clip46_poc_config config;
     struct clip46_p256_keypair keypair;
-    const char *path;
     clip_u8 plaintext[CLIP46_PLAINTEXT_BYTES];
     clip_u8 envelope_iv[16];
     clip_u8 app[CLIP46_APP_BYTES];
@@ -1086,17 +1074,16 @@ clip46_experimental_auth(struct pull_ctx *ctx,
         set_last_error_text("Invalid GTIS4.6 02 02 challenge.");
         return PULL_ERR_PROTOCOL;
     }
-    path = getenv("CLIP46_POC_FILE");
-    if (path == NULL || path[0] == '\0') {
+    if (!g_clip46_options.secure_read) {
         set_last_error_text(
-            "GTIS4.6 requires local CLIP46_POC_FILE with KEY_HEX and "
-            "CONTEXT_HEX; no 02 03 was sent.");
-        return PULL_ERR_CRYPTO;
+            "GTIS4.6 protected read is disabled in config.toml; "
+            "no authentication payload was sent.");
+        return PULL_ERR_SECURE_POST_AUTH;
     }
-    if (clip46_poc_load_config(path, &config) != 0) {
+    if (clip46_runtime_load_secrets(&config) != 0) {
         set_last_error_text(
-            "Invalid CLIP46_POC_FILE. Only KEY_HEX and CONTEXT_HEX are "
-            "supported; captured OPAQUE32/APP fields are prohibited.");
+            "Invalid [gtis46-config] KEY_HEX/CONTEXT_HEX in config.toml; "
+            "no authentication payload was sent.");
         goto done;
     }
     if (clip46_p256_generate(&keypair) != 0) {
@@ -1178,28 +1165,13 @@ clip46_experimental_auth(struct pull_ctx *ctx,
      * read-only download workflow continues over it.
      */
     if (ctx->clip46_read_only_workflow) {
-        const char *enable;
-        enable = getenv("CLIP46_POC_PULL");
-        if (enable != NULL && strcmp(enable, "1") == 0) {
+        if (g_clip46_options.secure_read) {
             clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
             clip_u8 response[CLIP_APP_MAX];
             size_t response_len;
-            const char *conn_id;
-            conn_id = getenv("CLIP46_POC_CONN_ID");
-            if (conn_id != NULL && conn_id[0] != '\0') {
-                char *endp;
-                unsigned long n;
-                n = strtoul(conn_id, &endp, 0);
-                if (endp == conn_id || *endp != '\0' ||
-                    n == 0UL || n > 255UL) {
-                    set_last_error_text(
-                        "CLIP46_POC_CONN_ID must be an integer 1..255.");
-                    rc = PULL_ERR_ARGUMENT;
-                    goto done;
-                }
-                /* Explicit local verification override wins. */
-                ctx->clip46_last_blocks = (clip_u8)n;
-            }
+            if (g_clip46_options.conn_override != 0U)
+                ctx->clip46_last_blocks =
+                    (clip_u8)g_clip46_options.conn_override;
             memset(request, 0, sizeof(request));
             memset(response, 0, sizeof(response));
             /*
@@ -1254,7 +1226,7 @@ clip46_experimental_auth(struct pull_ctx *ctx,
     }
     set_last_error_text(
         "GTIS4.6 02 04 decrypted and fresh P-256 ECDH derived. "
-        "Set CLIP46_POC_PULL=1 to open the protected read-only session. "
+        "Set [experimental] gtis46_secure_read=true in config.toml. "
         "Context/ack semantics remain unverified.");
     rc = PULL_ERR_SECURE_POST_AUTH;
 
@@ -3991,6 +3963,11 @@ rp1210_pull_ccal(const char *api_name,
         return PULL_ERR_ARGUMENT;
     }
 
+    if (clip46_runtime_load(&g_clip46_options) != 0) {
+        set_last_error_text("Unable to load GTIS4.6 settings from config.toml.");
+        return PULL_ERR_ARGUMENT;
+    }
+
     ctx.transport = NULL;
     ctx.session_id = 0x01U;
     ctx.wire_slot = 0U;
@@ -4242,6 +4219,40 @@ rp1210_upload_ccal(const char *api_name,
         return PULL_ERR_ARGUMENT;
     }
 
+    if (clip46_runtime_load(&g_clip46_options) != 0) {
+        set_last_error_text("Unable to load GTIS4.6 settings from config.toml.");
+        return PULL_ERR_ARGUMENT;
+    }
+
+    /*
+     * GTIS4.6 is NOT the legacy loader. Plan the complete DA00 frame
+     * sequence offline, then stop before opening RP1210. This prevents
+     * even a successful secure authentication from falling through to
+     * the incompatible 24-bit 4B/4D sender.
+     */
+    if (g_clip46_options.da00_plan) {
+        struct clip46_plan_stats stats;
+        char note[512];
+        if (clip46_plan_ccal(ccal_path, &stats) != 0) {
+            set_last_error_text("GTIS4.6 DA00 plan failed: CCAL CRC, image layout, "
+                                "or 32-bit region address is invalid. No traffic sent.");
+            return PULL_ERR_CAL;
+        }
+        sprintf(note, "GTIS4.6 DA00 offline plan: %u stream region(s), "
+                "%u identity region(s), %lu image bytes, %lu superblocks, "
+                "%lu wire frames. No ECM traffic.",
+                stats.regions, stats.identity_regions, stats.image_bytes,
+                stats.super_blocks, stats.wire_frames);
+        if (progress != NULL)
+            progress(100, note);
+        set_last_error_text(
+            "DA00 offline plan generated successfully. Programming is BLOCKED: "
+            "session-derived 22 27 08 authentication, ECM identity merge, "
+            "region-tail variants and encrypted service-11 commit remain "
+            "unverified. No programming traffic was sent.");
+        return PULL_ERR_SECURE_POST_AUTH;
+    }
+
     /*
      * Deliberately perform the complete file/programming-layout preflight
      * before opening the adapter.  A CRC-valid but unsupported/truncated CCAL
@@ -4251,26 +4262,7 @@ rp1210_upload_ccal(const char *api_name,
         progress(0, "Validating CCAL CRC, Intel-HEX structure, and loader layout...");
 
     memset(&detail, 0, sizeof(detail));
-    if (getenv("CLIP46_POC_FLASH") != NULL &&
-        strcmp(getenv("CLIP46_POC_FLASH"), "1") == 0) {
-        /*
-         * GTIS4.6 staged flash experiment: CRC-only preflight. The legacy
-         * raw-loader layout checks (24-bit addressing, 3-range layouts)
-         * do not apply to the DA00 streaming protocol. The staged flow
-         * never transmits image data.
-         */
-        if (!clip_cal_verify_ccal_crc(ccal_path)) {
-            set_last_error_text(
-                "CCAL CRC verification failed. No programming traffic was sent.");
-            return PULL_ERR_CRC;
-        }
-        report_progress(&ctx, 1,
-                        "GTIS4.6 staged flash: CRC ok; legacy loader "
-                        "layout checks skipped for the DA00 protocol.");
-        cal_rc = CLIP_CAL_OK;
-    } else {
-        cal_rc = clip_cal_validate_ccal_detail(ccal_path, &detail);
-    }
+    cal_rc = clip_cal_validate_ccal_detail(ccal_path, &detail);
     if (cal_rc != CLIP_CAL_OK) {
         char msg[512];
 
@@ -4368,70 +4360,16 @@ rp1210_upload_ccal(const char *api_name,
         goto done;
 
     /*
-     * GTIS4.6 secure sessions: run the full upload through the encrypted
-     * codec (secure preflight + unlock + loader transition), then fall
-     * through to the raw loader path below.
+     * Never enter a GTIS4.6 loader or send raw writes. The only supported
+     * DA00 code path currently produces an OFFLINE plan above.
      */
     if (ctx.clip46_secure) {
-        const char *flash_env;
-
-        flash_env = getenv("CLIP46_POC_FLASH");
-        if (flash_env != NULL && strcmp(flash_env, "1") == 0) {
-            report_progress(&ctx, 5,
-                            "GTIS4.6 upload via secure CLIP codec...");
-            sequence = 0x02U; /* auth query used seq 01 */
-
-            /* Secure preflight: multi-query + 0x0B state entry. */
-            rc = cal_preflight_multi_query(&ctx, &sequence);
-            if (rc != PULL_OK)
-                goto done;
-            rc = cal_enter_0b_state(&ctx, &sequence, 1);
-            if (rc != PULL_OK)
-                goto done;
-
-            /* Unlock through the encrypted codec. */
-            report_progress(&ctx, 17,
-                            "GTIS4.6: unlocking calibration access...");
-            unlock_attempted = 1;
-            rc = cal_enter_mode_value(&ctx, &sequence,
-                                      CLIP_MODE_CAL_LOCK,
-                                      CLIP_CAL_UNLOCKED);
-            if (rc != PULL_OK) {
-                set_last_error_text(
-                    "GTIS4.6 calibration unlock not acknowledged; "
-                    "programming not started.");
-                goto done;
-            }
-
-            /* Loader transition through the encrypted codec. */
-            report_progress(&ctx, 18,
-                            "GTIS4.6: entering calibration loader...");
-            rc = cal_prepare_programming(&ctx, &sequence,
-                                         &loader_requested);
-            if (rc != PULL_OK) {
-                set_last_error_text(
-                    "GTIS4.6 loader transition (mode 0x0017) failed. "
-                    "The ECM may require the DA00 streaming protocol.");
-                goto done;
-            }
-
-            report_progress(&ctx, 19,
-                            "GTIS4.6: loader transition accepted; "
-                            "continuing with raw calibration loader.");
-            /*
-             * Fall through to the raw loader section below — the CLIP
-             * session is dropping, the raw loader will start.
-             */
-        } else {
-            report_progress(&ctx, 5,
-                            "GTIS4.6 secure programming is not supported.");
-            set_last_error_text(
-                "GTIS4.6 secure calibration upload requires "
-                "CLIP46_POC_FLASH=1 (upload through the encrypted CLIP "
-                "codec). Use the recommended OEM software otherwise.");
-            rc = PULL_ERR_SECURE_POST_AUTH;
-            goto done;
-        }
+        set_last_error_text(
+            "GTIS4.6 live upload is not implemented. No loader transition "
+            "or image data was sent; enable [experimental] gtis46_da00_plan "
+            "for an offline frame-count verification.");
+        rc = PULL_ERR_SECURE_POST_AUTH;
+        goto done;
     } else {
         /*
          * Legacy (non-secure) path: full 22-query preflight, unlock,

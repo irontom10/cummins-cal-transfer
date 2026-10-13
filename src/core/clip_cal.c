@@ -955,6 +955,34 @@ int clip_cal_verify_ccal_crc(const char *filename)
     return 1;
 }
 
+int clip_cal_visit_ccal_regions(const char *filename,
+                                clip_cal_region_visitor visitor, void *user)
+{
+    clip_cal_image image;
+    unsigned int i;
+    int rc;
+    if (filename == NULL || visitor == NULL)
+        return CLIP_CAL_ERR_ARGUMENT;
+    if (!clip_cal_verify_ccal_crc(filename))
+        return CLIP_CAL_ERR_CRC;
+    memset(&image, 0, sizeof(image));
+    rc = clip_cal_parse_ccal(filename, &image);
+    if (rc == CLIP_CAL_OK) {
+        for (i = 0U; i < image.count; ++i) {
+            if (image.region[i].length == 0UL ||
+                visitor(user, image.region[i].address,
+                        image.region[i].data, image.region[i].length) != 0) {
+                rc = CLIP_CAL_ERR_RANGE;
+                break;
+            }
+        }
+        if (image.count == 0U)
+            rc = CLIP_CAL_ERR_LAYOUT;
+    }
+    clip_cal_image_free(&image);
+    return rc;
+}
+
 int clip_cal_validate_ccal(const char *filename)
 {
     return clip_cal_validate_ccal_detail(filename, NULL);

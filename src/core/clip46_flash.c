@@ -138,6 +138,7 @@ clip46_flash_build_super(const unsigned char *image_chunk,
         return -1;
 
     /* Block 1: DA 36 <seq> + up to 109 image bytes. */
+    memset(head, 0xCC, sizeof(head));
     head[0] = 0xDAU;
     head[1] = 0x36U;
     head[2] = seq;

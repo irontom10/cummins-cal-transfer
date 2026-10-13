@@ -15,6 +15,10 @@ jobs:
           /tmp/clip46_aes
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/da00_sendkey_test.c src/core/da00_sendkey.c src/core/clip46_poc_secure.c -o /tmp/da00_sendkey
           /tmp/da00_sendkey
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_flash_test.c src/core/clip46_flash.c -o /tmp/clip46_flash
+          /tmp/clip46_flash
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_runtime_test.c src/core/clip46_runtime.c src/core/config_store.c src/core/clip46_poc_secure.c -o /tmp/clip46_runtime
+          /tmp/clip46_runtime
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_p256_test.c src/core/clip46_poc_secure.c src/core/clip46_p256.c -o /tmp/clip46_p256
           /tmp/clip46_p256
   windows-x86:
