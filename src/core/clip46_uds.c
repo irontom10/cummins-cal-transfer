@@ -241,6 +241,82 @@ static int uds_do(const struct clip46_uds_io *io,
     return -1;
 }
 
+
+/*
+ * Reproduce the three read-only KWP2 probes directly preceding 10 02 in
+ * the October 11 OEM capture.  Their responses are validated for shape,
+ * not for fixed payload values (those are ECM-specific).
+ *
+ * Only DiagnosticSessionControl 10 02 is retryable on NRC 0x21
+ * BusyRepeatRequest. Do not re-send a flash operation after 0x21 without
+ * understanding its transaction semantics.
+ */
+int clip46_uds_begin_programming(const struct clip46_uds_io *io,
+                                 char *error, size_t error_capacity)
+{
+    static const unsigned char probe_did[3][2] = {
+        {0x22U, 0x60U}, {0x86U, 0xCAU}, {0x22U, 0x60U}
+    };
+    unsigned char req[3], rx[64];
+    size_t n;
+    unsigned int i, attempt;
+    int rc;
+    char msg[120];
+
+    if (io == NULL || io->send == NULL || io->recv == NULL)
+        return -1;
+
+    for (i = 0U; i < 3U; ++i) {
+        req[0] = 0x22U;
+        req[1] = probe_did[i][0];
+        req[2] = probe_did[i][1];
+        n = 0U;
+        sprintf(msg, "OEM DA00 state probe 22 %02X %02X",
+                (unsigned int)req[1], (unsigned int)req[2]);
+        report(io, 2, msg);
+        if (uds_do(io, req, sizeof(req), rx, sizeof(rx), &n,
+                   UDS_DEFAULT_TIMEOUT, error, error_capacity, msg) != 0)
+            return -1;
+        if (n < 3U || rx[1] != req[1] || rx[2] != req[2]) {
+            set_error(error, error_capacity,
+                      "DA00 state probe returned an unexpected DID.");
+            return -1;
+        }
+    }
+
+    req[0] = 0x10U;
+    req[1] = 0x02U;
+    for (attempt = 0U; attempt < 3U; ++attempt) {
+        n = 0U;
+        report(io, 3, "GTIS4.6 UDS 10 02: requesting programming session...");
+        rc = uds_do(io, req, 2U, rx, sizeof(rx), &n,
+                    UDS_DEFAULT_TIMEOUT, error, error_capacity,
+                    "DiagnosticSessionControl (10 02)");
+        if (rc == 0) {
+            if (n < 2U || rx[1] != 0x02U) {
+                set_error(error, error_capacity,
+                          "UDS 50 02 reply has wrong subfunction.");
+                return -1;
+            }
+            set_error(error, error_capacity, "");
+            return 0;
+        }
+        if (n != 3U || rx[0] != 0x7FU ||
+            rx[1] != 0x10U || rx[2] != 0x21U)
+            return -1;
+        if (attempt == 2U) {
+            set_error(error, error_capacity,
+                      "DiagnosticSessionControl (10 02) still returned "
+                      "NRC 21 BusyRepeatRequest after three attempts. "
+                      "Missing CLIP flash-mode preconditions are possible.");
+            return -1;
+        }
+        report(io, 3, "UDS 10 02 busy (NRC 21); waiting 500 ms then retrying...");
+        ct_sleep_ms(500UL);
+    }
+    return -1;
+}
+
 struct region_context {
     const struct clip46_uds_io *io;
     char *error;
@@ -386,11 +462,7 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
     }
 
     /* Reference flash sequence recorded at 16:08:14 through 16:15:55. */
-    report(io, 2, "GTIS4.6 UDS 10 02: programming diagnostic session...");
-    req[0] = 0x10U; req[1] = 0x02U; rx_len = 0U;
-    if (uds_do(io, req, 2U, rx, sizeof(rx), &rx_len,
-               UDS_DEFAULT_TIMEOUT, error, error_capacity,
-               "DiagnosticSessionControl (10 02)") != 0)
+    if (clip46_uds_begin_programming(io, error, error_capacity) != 0)
         goto fail;
 
     report(io, 5, "GTIS4.6 UDS 27 07: requesting fresh seed...");

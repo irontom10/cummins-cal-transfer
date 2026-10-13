@@ -52,15 +52,20 @@ performs the existing protected seven-item multi-query (seq 02) and
 while a second J1939 connection handles DA00 using uds_tool_sa.
 The subsequent DA00 UDS sequence performs:
 
-1. DiagnosticSessionControl 10 02 (AFTER protected CLIP preflight).
-2. Fresh SecurityAccess RequestSeed 27 07; derives AES-CBC/PKCS#7
+1. Read-only OEM state probes 22 22 60, 22 86 CA, 22 22 60;
+   requires a valid positive response for each.
+2. DiagnosticSessionControl 10 02 (AFTER protected CLIP preflight).
+   If NRC 21 BusyRepeatRequest is returned, retries at 500-ms intervals
+   up to three total attempts; any other NRC aborts. An 0x21 that
+   persists is NOT interpreted as permission to flash.
+3. Fresh SecurityAccess RequestSeed 27 07; derives AES-CBC/PKCS#7
    SendKey 27 08 from the returned 32-byte seed and local tool metadata.
-3. RoutineControl 31 01 FF00 (prepare; observes 7F 31 78 pending).
-4. Four RequestDownload / TransferData / TransferExit regions in captured
+4. RoutineControl 31 01 FF00 (prepare; observes 7F 31 78 pending).
+5. Four RequestDownload / TransferData / TransferExit regions in captured
    order, starting with 0x02000000 and then three contiguous CCAL regions.
    Transfers 1496 bytes of image data per 36 request with UDS sequence
    rollover and verifies the ECM's 76 acknowledgments.
-5. RoutineControl 31 01 FF01 and ECUReset 11 01.
+6. RoutineControl 31 01 FF01 and ECUReset 11 01.
 
 ISO-TP first/consecutive frames, flow control, block size, STmin, and
 multi-frame responses use an independently testable C89 codec.
@@ -105,3 +110,6 @@ This is live experimental ECM programming: it can alter nonvolatile
 memory and may leave the ECM unusable or requiring an OEM recovery.
 The operator controls the feature through TOML, rather than a fixed
 application policy.
+
+The DA00 RP1210 client opens **before** protected CLIP authentication to
+avoid the previous 7.48-second idle gap between CLIP 0x000B and KWP2 10 02.

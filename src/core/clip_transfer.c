@@ -4073,6 +4073,31 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
      * multi-query + 0x000B state-entry preflight from secure READ.
      * Do NOT silently fall into the legacy 24-bit raw uploader.
      */
+    /* Start the slow RP1210 DA00 client BEFORE CLIP authentication.
+     * Last capture had 7.48 s between the protected 0x000B reply and
+     * UDS 10 02, likely enough for the protected session to go stale.
+     * Keep that gap short: open the data-plane client first.
+     */
+    if (progress != NULL)
+        progress(1, "GTIS4.6: opening DA00 J1939 client before CLIP auth...");
+    transport = j1939_transport_create();
+    if (transport == NULL) {
+        set_last_error_text("Cannot allocate DA00 J1939 transport.");
+        result = PULL_ERR_MEMORY;
+        goto done;
+    }
+    rc = j1939_transport_open(transport, api_name, device_id, baud,
+                               0x00DA00UL, 6U,
+                               credentials.uds_tool_sa, ecm_sa);
+    if (rc != J1939_TRANSPORT_OK) {
+        set_last_error_text(j1939_transport_error(transport));
+        result = PULL_ERR_CONNECT;
+        goto done;
+    }
+
+    if (progress != NULL)
+        progress(2, "GTIS4.6: DA00 transport ready; establishing protected CLIP...");
+
     clip.session_id = 0x01U;
     clip.wire_slot = 0U;
     clip.progress = progress;
@@ -4114,7 +4139,7 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
     }
     clip_prepared = 1;
     if (progress != NULL)
-        progress(15, "GTIS4.6 CLIP preflight acknowledged; opening DA00 UDS...");
+        progress(15, "GTIS4.6 CLIP preflight acknowledged; running DA00 state probes...");
 
     /*
      * Open DA00 in a separate RP1210/J1939 client. The CLIP client stays
@@ -4122,20 +4147,6 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
      * plane. clip_tool_sa may be F1 while UDS uses F9, if a vendor driver
      * refuses two protect-address claims at the same source address.
      */
-    transport = j1939_transport_create();
-    if (transport == NULL) {
-        set_last_error_text("Cannot allocate DA00 J1939 transport.");
-        result = PULL_ERR_MEMORY;
-        goto done;
-    }
-    rc = j1939_transport_open(transport, api_name, device_id, baud,
-                               0x00DA00UL, 6U,
-                               credentials.uds_tool_sa, ecm_sa);
-    if (rc != J1939_TRANSPORT_OK) {
-        set_last_error_text(j1939_transport_error(transport));
-        result = PULL_ERR_CONNECT;
-        goto done;
-    }
 
     live.transport = transport;
     live.progress = progress;

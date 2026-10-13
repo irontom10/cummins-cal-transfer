@@ -148,11 +148,54 @@ static int test_pending(void)
     return 0;
 }
 
+
+static int test_oem_entry(void)
+{
+    struct wire w;
+    struct clip46_uds_io io;
+    char error[256];
+    unsigned char r0[5], r1[8], neg[4], pos[7];
+    init(&w);
+    io.user = &w; io.send = tx; io.recv = rx; io.progress = NULL;
+    r0[0] = 4U; r0[1] = 0x62U; r0[2] = 0x22U;
+    r0[3] = 0x60U; r0[4] = 0U;
+    r1[0] = 7U; r1[1] = 0x62U; r1[2] = 0x86U;
+    r1[3] = 0xCAU; r1[4] = 0U; r1[5] = 0U;
+    r1[6] = 0U; r1[7] = 7U;
+    neg[0] = 3U; neg[1] = 0x7FU;
+    neg[2] = 0x10U; neg[3] = 0x21U;
+    pos[0] = 6U; pos[1] = 0x50U; pos[2] = 0x02U;
+    pos[3] = 0x03U; pos[4] = 0xE8U;
+    pos[5] = 0U; pos[6] = 0x64U;
+    set_rx(&w, 0U, r0, sizeof(r0));
+    set_rx(&w, 1U, r1, sizeof(r1));
+    set_rx(&w, 2U, r0, sizeof(r0));
+    set_rx(&w, 3U, neg, sizeof(neg));
+    set_rx(&w, 4U, pos, sizeof(pos));
+    if (clip46_uds_begin_programming(&io, error, sizeof(error)) != 0 ||
+        w.rx_next != 5U || w.sends != 5U || error[0] != '\0')
+        return 1;
+    init(&w);
+    io.user = &w;
+    set_rx(&w, 0U, r0, sizeof(r0));
+    set_rx(&w, 1U, r1, sizeof(r1));
+    set_rx(&w, 2U, r0, sizeof(r0));
+    set_rx(&w, 3U, neg, sizeof(neg));
+    set_rx(&w, 4U, neg, sizeof(neg));
+    set_rx(&w, 5U, neg, sizeof(neg));
+    if (clip46_uds_begin_programming(&io, error, sizeof(error)) == 0 ||
+        w.rx_next != 6U || w.sends != 6U ||
+        strstr(error, "BusyRepeatRequest") == NULL)
+        return 2;
+    return 0;
+}
+
 int main(void)
 {
     if (test_bulk()) { puts("ISO-TP bulk framing FAILED"); return 1; }
     if (test_seed()) { puts("ISO-TP seed response FAILED"); return 2; }
     if (test_pending()) { puts("UDS ResponsePending FAILED"); return 3; }
+    if (test_oem_entry()) { puts("OEM DA00 state probes / busy retry FAILED"); return 4; }
     puts("GTIS4.6 DA00 UDS ISO-TP synthetic tests passed");
     return 0;
 }

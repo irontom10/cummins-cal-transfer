@@ -25,6 +25,11 @@ struct clip46_uds_io {
  * Caller must still separately verify the OEM encrypted CLIP post-flash
  * commit. This function does NOT implement that proprietary phase.
  */
+/* OEM DA00 status probes + bounded NRC 21 retry on 10 02 only.
+ * Testable independently without writing ECU memory. */
+int clip46_uds_begin_programming(const struct clip46_uds_io *io,
+                                 char *error, size_t error_capacity);
+
 int clip46_uds_flash(const struct clip46_uds_io *io,
                      const struct clip46_uds_config *credentials,
                      const char *ccal_path,
