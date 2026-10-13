@@ -2,6 +2,9 @@
 #include "config_store.h"
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 int main(void)
 {
@@ -18,6 +21,9 @@ int main(void)
         0x7e,0xbd,0xfa,0x04,0x24,0xf0,0x44,0x96
     };
     unsigned int i;
+#ifndef _WIN32
+    struct stat info;
+#endif
     fp = fopen(path, "wb");
     if (fp == NULL) return 1;
     fputs("[experimental]\n"
@@ -60,6 +66,13 @@ int main(void)
         memcmp(sendkey, expected, sizeof(expected)) != 0)
         return 4;
     clip46_poc_wipe(&uds, sizeof(uds));
+#ifndef _WIN32
+    /* Secret-bearing files must be saved with owner-only permissions. */
+    if (ct_config_save() != 0 ||
+        stat(path, &info) != 0 ||
+        (info.st_mode & 0077) != 0)
+        return 5;
+#endif
     ct_config_close();
     remove(path);
     puts("GTIS4.6 TOML configuration test passed");
