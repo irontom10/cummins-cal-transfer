@@ -97,6 +97,46 @@ int main(void)
         assert(clip46_poc_derive_connection_id(0xFFU, &cid) != 0);
         assert(clip46_poc_derive_connection_id(0x03U, NULL) != 0);
     }
+    /* OEM special CLIP 0x000B state-entry byte-4 override.
+     * INSITE: 81 00 .. 00 00 12 03 ...
+     * Before this fix we instead sent byte 4 = last_blocks (e.g. 03).
+     * Other protected application requests must retain the reply-block
+     * acknowledgment, even if their caller supplies session_id=00.
+     */
+    {
+        unsigned char mode_enter[4], query[7], other_mode[5];
+        mode_enter[0] = 0x12U;
+        mode_enter[1] = 0x03U;
+        mode_enter[2] = 0x00U;
+        mode_enter[3] = 0x0BU;
+        assert(clip46_poc_outer_ack(0x03U, 0x00U,
+                                   mode_enter, sizeof(mode_enter)) == 0U);
+        mode_enter[1] = 0x04U;
+        assert(clip46_poc_outer_ack(0x34U, 0x00U,
+                                   mode_enter, sizeof(mode_enter)) == 0U);
+        assert(clip46_poc_outer_ack(0x03U, 0x01U,
+                                   mode_enter, sizeof(mode_enter)) == 0x03U);
+        query[0] = 0x10U;
+        query[1] = 0x02U;
+        query[2] = 0x07U;
+        query[3] = 0x01U;
+        query[4] = 0x00U;
+        query[5] = 0x00U;
+        query[6] = 0x82U;
+        assert(clip46_poc_outer_ack(0x02U, 0x00U,
+                                   query, sizeof(query)) == 0x02U);
+        other_mode[0] = 0x12U;
+        other_mode[1] = 0x05U;
+        other_mode[2] = 0x00U;
+        other_mode[3] = 0x18U;
+        other_mode[4] = 0x00U;
+        assert(clip46_poc_outer_ack(0x34U, 0x00U,
+                                   other_mode, sizeof(other_mode)) == 0x34U);
+        assert(clip46_poc_outer_ack(0x03U, 0x00U,
+                                   mode_enter, 3U) == 0x03U);
+        assert(clip46_poc_outer_ack(0x03U, 0x00U,
+                                   NULL, 0U) == 0x03U);
+    }
     puts("CLIP46 C89 AES-CBC synthetic vector passed");
     return 0;
 }

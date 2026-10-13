@@ -584,6 +584,7 @@ clip_send_close(struct pull_ctx *ctx)
  */
 static int
 clip46_send(struct pull_ctx *ctx,
+            clip_u8 requested_outer,
             const clip_u8 *app,
             size_t app_len)
 {
@@ -614,7 +615,10 @@ clip46_send(struct pull_ctx *ctx,
     wire[1] = 0x00U;
     wire[2] = cls;
     wire[3] = 0x00U;
-    wire[4] = ctx->clip46_last_blocks;
+    /* Preserve the explicit 00 only for CLIP 12 <seq> 00 0B.
+     * Other messages still acknowledge the previous reply block count. */
+    wire[4] = clip46_poc_outer_ack(ctx->clip46_last_blocks,
+                                   requested_outer, app, app_len);
     wire[5] = app[0];
     wire[6] = app[1];
 
@@ -634,6 +638,7 @@ clip46_send(struct pull_ctx *ctx,
  */
 static int
 clip46_exchange(struct pull_ctx *ctx,
+                clip_u8 requested_outer,
                 const clip_u8 *app,
                 size_t app_len,
                 clip_u8 expected0,
@@ -654,7 +659,7 @@ clip46_exchange(struct pull_ctx *ctx,
     if (ctx == NULL || app == NULL || reply_app == NULL || reply_len == NULL)
         return PULL_ERR_ARGUMENT;
 
-    rc = clip46_send(ctx, app, app_len);
+    rc = clip46_send(ctx, requested_outer, app, app_len);
     if (rc != PULL_OK)
         return rc;
 
@@ -809,6 +814,7 @@ clip_exchange(struct pull_ctx *ctx,
      */
     if (ctx->clip46_secure) {
         return clip46_exchange(ctx,
+                               session_id,
                                app,
                                app_len,
                                expected0,
@@ -1011,7 +1017,7 @@ clip_send_only(struct pull_ctx *ctx,
         return PULL_ERR_ARGUMENT;
 
     if (ctx->clip46_secure)
-        return clip46_send(ctx, app, app_len);
+        return clip46_send(ctx, ctx->session_id, app, app_len);
 
     if (app_len + 5U > sizeof(wire))
         return PULL_ERR_PROTOCOL;

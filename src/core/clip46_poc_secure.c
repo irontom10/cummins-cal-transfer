@@ -269,6 +269,26 @@ int clip46_poc_build(const unsigned char challenge[16],
     memcpy(plaintext+67U,opaque32,32U);
     return 0;
 }
+
+/* The incoming session_id argument in the CLIP caller is also the
+ * deliberate outer-state byte on the legacy transport. GTIS4.6 normally
+ * replaces it with the previous-response block count. Only the exact
+ * state-entry application request 12 <seq> 00 0B preserves explicit 00.
+ *
+ * This matches the OEM's 12 03 wire[4]=00 while leaving normal protected
+ * 10/12/13 query acknowledgment accounting untouched.
+ */
+unsigned char clip46_poc_outer_ack(unsigned char prior_blocks,
+                                    unsigned char requested_session,
+                                    const unsigned char *app,
+                                    size_t app_len)
+{
+    if (requested_session == 0U && app != NULL && app_len == 4U &&
+        app[0] == 0x12U && app[2] == 0x00U && app[3] == 0x0BU)
+        return 0U;
+    return prior_blocks;
+}
+
 /* Superseded investigation record; see clip46_poc_secure.h. Rejects slots
  * outside the observed 0x03..0x0B window instead of guessing an ID. */
 int clip46_poc_derive_connection_id(unsigned char slot,

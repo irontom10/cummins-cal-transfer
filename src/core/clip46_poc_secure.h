@@ -45,6 +45,17 @@ int clip46_poc_build(const unsigned char challenge[16],
  * capture (23B -> 0x02, 823B -> 0x34). Retained with its tests as the
  * record of the investigation that the live stall pattern disproved.
  */
+
+/* Secure CLIP: a 0x000B state-entry request can explicitly use outer
+ * byte 4 = 0x00 instead of the previous reply's block acknowledgment.
+ * The exception is only active when clip_exchange() was called with
+ * legacy session_id=0 and application PDU 12 <seq> 00 0B.
+ * Returns normal previous-block count for every other request.
+ */
+unsigned char clip46_poc_outer_ack(unsigned char prior_blocks,
+                                    unsigned char requested_session,
+                                    const unsigned char *app,
+                                    size_t app_len);
 int clip46_poc_derive_connection_id(unsigned char slot,
                                     unsigned char *connection_id);
 int clip46_poc_decode_hex(const char *hex, unsigned char *output, size_t len);
