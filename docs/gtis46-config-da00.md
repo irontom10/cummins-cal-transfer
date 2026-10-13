@@ -24,10 +24,16 @@ gtis46_da00_plan = true
 gtis46_conn_override = 0
 
 [gtis46-config]
-KEY_HEX = "<your local 32-hex-character key>"
-CONTEXT_HEX = "<your local 102-hex-character context>"
-# Other older experimental fields may remain, but are NOT an input to
-# the CLIP 02 03 handshake and are not used by this code.
+KEY_HEX = "<your local 32-hex-character CLIP key>"
+CONTEXT_HEX = "<your local 102-hex-character CLIP context>"
+tool_version = "000F"
+tool_instance = "10000006"
+tool_family = "<12 hex digits for the 6-byte family>"
+include_optional = true
+optional_byte = "02"
+uds_tool_sa = "F9"
+aes_key_hex = "<your separate 32-hex-digit UDS AES key>"
+# No manual PKCS#7 setting: padded automatically by the crypto code.
 ```
 
 - `gtis46_secure_read` opts into fresh P-256/ECDH protected **read** sessions.
@@ -36,6 +42,13 @@ CONTEXT_HEX = "<your local 102-hex-character context>"
   without legacy 24-bit restrictions, counts region announcements and
   DA00 superblocks, and stops BEFORE opening an RP1210 connection.
 - Missing or malformed authentication material blocks the handshake.
+- \`clip46_runtime_load_uds()\` parses the independent UDS 0x27 08
+  \`tool_version\`, \`tool_instance\`, \`tool_family\`,
+  \`include_optional\`, \`optional_byte\`, \`uds_tool_sa\`,
+  and \`aes_key_hex\` settings as fixed-width values. A pure offline
+  \`clip46_runtime_build_uds_sendkey()\` computes the 32-byte cryptogram
+  from a caller-supplied 32-byte seed and wipes the AES key afterward.
+  PKCS#7 is automatic, and no UDS traffic is sent.
 - The 0x02000000/16-byte identity region is tracked separately; INSITE
   carries it in a special header and merges existing ECM identity into
   the image. This plan does NOT reproduce that merge.
