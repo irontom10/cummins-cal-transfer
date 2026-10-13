@@ -4019,7 +4019,7 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
 {
     struct clip46_uds_io io;
     struct clip46_uds_config credentials;
-    struct clip46_plan_stats preflight_plan;
+    struct clip46_uds_image prepared;
     struct clip46_live_context live;
     struct pull_ctx clip;
     struct j1939_transport *transport;
@@ -4031,7 +4031,7 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
     int clip_prepared;
 
     memset(&credentials, 0, sizeof(credentials));
-    memset(&preflight_plan, 0, sizeof(preflight_plan));
+    memset(&prepared, 0, sizeof(prepared));
     memset(&live, 0, sizeof(live));
     memset(&clip, 0, sizeof(clip));
     memset(&io, 0, sizeof(io));
@@ -4052,15 +4052,16 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
      * anything to the ECM. There are precisely three stream regions
      * and one 16-byte high-address identity record.
      */
-    if (clip46_plan_ccal(ccal_path, &preflight_plan) != 0 ||
-        preflight_plan.regions != 3U ||
-        preflight_plan.identity_regions != 1U) {
-        set_last_error_text("GTIS4.6 CCAL CRC/layout validation failed "
+    if (progress != NULL)
+        progress(0, "GTIS4.6: preloading and verifying CCAL before CLIP...");
+    if (clip46_uds_prepare_file(ccal_path, &prepared) != 0) {
+        set_last_error_text("GTIS4.6 CCAL CRC/layout preparation failed "
                             "before CLIP/UDS programming traffic.");
         return PULL_ERR_CAL;
     }
 
     if (clip46_runtime_load_uds(&credentials) != 0) {
+        clip46_uds_free_image(&prepared);
         set_last_error_text("Invalid UDS [gtis46-config] fields; "
                             "no ECM traffic was sent.");
         return PULL_ERR_ARGUMENT;
@@ -4154,8 +4155,8 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
     io.send = clip46_live_send;
     io.recv = clip46_live_recv;
     io.progress = clip46_live_progress;
-    rc = clip46_uds_flash(&io, &credentials, ccal_path,
-                          error, sizeof(error));
+    rc = clip46_uds_flash_prepared(&io, &credentials, &prepared,
+                                   error, sizeof(error));
     if (rc != 0) {
         /* Preserve precise NRC: e.g. 7F 10 22 conditions-not-correct.
          * The now-verified CLIP prelude eliminates skipping CLIP as a
@@ -4185,6 +4186,7 @@ done:
         close_j1939_transport(&clip);
     }
     clip46_poc_wipe(&credentials, sizeof(credentials));
+    clip46_uds_free_image(&prepared);
     if (clip_prepared && progress != NULL && result == PULL_ERR_UPLOAD)
         progress(0, "GTIS4.6 CLIP preflight succeeded; DA00 rejected a subsequent UDS step.");
     return result;

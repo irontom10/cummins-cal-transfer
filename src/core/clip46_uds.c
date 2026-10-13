@@ -17,6 +17,7 @@
 #include "ct_platform.h"
 #include "clip46_poc_secure.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define UDS_FRAME 8U
@@ -261,11 +262,13 @@ int clip46_uds_begin_programming(const struct clip46_uds_io *io,
     size_t n;
     unsigned int i, attempt;
     int rc;
-    char msg[120];
+    char msg[180];
+    char last_86ca[20];
 
     if (io == NULL || io->send == NULL || io->recv == NULL)
         return -1;
 
+    strcpy(last_86ca, "not received");
     for (i = 0U; i < 3U; ++i) {
         req[0] = 0x22U;
         req[1] = probe_did[i][0];
@@ -281,6 +284,19 @@ int clip46_uds_begin_programming(const struct clip46_uds_io *io,
             set_error(error, error_capacity,
                       "DA00 state probe returned an unexpected DID.");
             return -1;
+        }
+        if (i == 1U) {
+            if (n != 7U) {
+                set_error(error, error_capacity,
+                          "DID 86CA must contain four data bytes.");
+                return -1;
+            }
+            sprintf(last_86ca, "%02X%02X%02X%02X",
+                    (unsigned)rx[3], (unsigned)rx[4],
+                    (unsigned)rx[5], (unsigned)rx[6]);
+            sprintf(msg, "DA00 DID 86CA raw=0x%s (OEM capture: 0x00000007)",
+                    last_86ca);
+            report(io, 3, msg);
         }
     }
 
@@ -302,8 +318,15 @@ int clip46_uds_begin_programming(const struct clip46_uds_io *io,
             return 0;
         }
         if (n != 3U || rx[0] != 0x7FU ||
-            rx[1] != 0x10U || rx[2] != 0x21U)
+            rx[1] != 0x10U || rx[2] != 0x21U) {
+            if (n == 3U && rx[0] == 0x7FU && rx[1] == 0x10U) {
+                sprintf(msg, "UDS 10 02 NRC %02X; DID 86CA=0x%s. "
+                        "Check protected CLIP flash-mode prerequisites.",
+                        (unsigned)rx[2], last_86ca);
+                set_error(error, error_capacity, msg);
+            }
             return -1;
+        }
         if (attempt == 2U) {
             set_error(error, error_capacity,
                       "DiagnosticSessionControl (10 02) still returned "
@@ -321,10 +344,7 @@ struct region_context {
     const struct clip46_uds_io *io;
     char *error;
     size_t error_cap;
-    unsigned char identity[16];
-    int got_identity;
     unsigned int region_index;
-    int failed;
 };
 
 static int flash_region(struct region_context *state,
@@ -401,41 +421,98 @@ static int flash_region(struct region_context *state,
     return 0;
 }
 
-static int collect_identity(void *user, unsigned long address,
-                            const unsigned char *data, unsigned long len)
+
+void clip46_uds_free_image(struct clip46_uds_image *image)
 {
-    struct region_context *state;
-    state = (struct region_context *)user;
-    if (address == 0x02000000UL) {
-        if (len != 16UL || state->got_identity)
-            return -1;
-        memcpy(state->identity, data, 16U);
-        state->got_identity = 1;
+    unsigned int i;
+    if (image == NULL) return;
+    for (i = 0U; i < CLIP46_UDS_MAX_REGIONS; ++i) {
+        if (image->regions[i].bytes != NULL) {
+            free(image->regions[i].bytes);
+            image->regions[i].bytes = NULL;
+        }
     }
+    memset(image, 0, sizeof(*image));
+}
+
+static int prepare_region(void *user, unsigned long address,
+                          const unsigned char *data, unsigned long len)
+{
+    struct clip46_uds_image *image;
+    struct clip46_uds_image_region *entry;
+    unsigned int i;
+    unsigned long total;
+    image = (struct clip46_uds_image *)user;
+    if (!image || !data || len == 0UL ||
+        len > 0xffffffffUL - address ||
+        image->count >= CLIP46_UDS_MAX_REGIONS)
+        return -1;
+    total = len;
+    for (i = 0U; i < image->count; ++i) {
+        if (image->regions[i].length > 32UL * 1024UL * 1024UL - total)
+            return -1;
+        total += image->regions[i].length;
+        /* Reject overlapping or duplicate regions, including metadata. */
+        if (address < image->regions[i].address +
+                       image->regions[i].length &&
+            image->regions[i].address < address + len)
+            return -1;
+    }
+    if (total > 32UL * 1024UL * 1024UL)
+        return -1;
+    if (address == 0x02000000UL && len != 16UL)
+        return -1;
+    entry = &image->regions[image->count];
+    entry->bytes = (unsigned char *)malloc((size_t)len);
+    if (entry->bytes == NULL)
+        return -1;
+    memcpy(entry->bytes, data, (size_t)len);
+    entry->address = address;
+    entry->length = len;
+    if (address == 0x02000000UL)
+        image->identity_index = image->count;
+    image->count++;
     return 0;
 }
 
-static int flash_callback(void *user, unsigned long address,
-                          const unsigned char *data, unsigned long len)
+int clip46_uds_prepare_file(const char *path, struct clip46_uds_image *image)
 {
-    struct region_context *state;
-    state = (struct region_context *)user;
-    if (address == 0x02000000UL)
-        return 0; /* Already transferred before 0x00001080. */
-    if (flash_region(state, address, data, len) != 0) {
-        state->failed = 1;
+    struct clip46_plan_stats stats;
+    unsigned int i, n_identity;
+    int rc;
+    if (path == NULL || image == NULL)
+        return -1;
+    memset(image, 0, sizeof(*image));
+    image->identity_index = CLIP46_UDS_MAX_REGIONS;
+    /* Offline region/CRC check and DA00 frame geometry, all before CLIP. */
+    if (clip46_plan_ccal(path, &stats) != 0 ||
+        stats.regions != 3U || stats.identity_regions != 1U)
+        return -1;
+    rc = clip_cal_visit_ccal_regions(path, prepare_region, image);
+    if (rc != CLIP_CAL_OK || image->count != CLIP46_UDS_MAX_REGIONS ||
+        image->identity_index >= image->count) {
+        clip46_uds_free_image(image);
+        return -1;
+    }
+    n_identity = 0U;
+    for (i = 0U; i < image->count; ++i)
+        if (image->regions[i].address == 0x02000000UL)
+            n_identity++;
+    if (n_identity != 1U) {
+        clip46_uds_free_image(image);
         return -1;
     }
     return 0;
 }
 
-int clip46_uds_flash(const struct clip46_uds_io *io,
-                     const struct clip46_uds_config *credentials,
-                     const char *ccal_path, char *error,
-                     size_t error_capacity)
+/* Live flash starts immediately with KWP2 reads and 10 02: no disk I/O. */
+int clip46_uds_flash_prepared(const struct clip46_uds_io *io,
+                              const struct clip46_uds_config *credentials,
+                              const struct clip46_uds_image *image,
+                              char *error, size_t error_capacity)
 {
-    struct clip46_plan_stats plan;
     struct region_context state;
+    unsigned int i;
     unsigned char req[34];
     unsigned char rx[128];
     unsigned char key[32];
@@ -444,7 +521,9 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
     memset(&state, 0, sizeof(state));
     memset(req, 0, sizeof(req));
     memset(key, 0, sizeof(key));
-    if (!io || !io->send || !io->recv || !credentials || !ccal_path) {
+    if (!io || !io->send || !io->recv || !credentials || !image ||
+        image->count != CLIP46_UDS_MAX_REGIONS ||
+        image->identity_index >= image->count) {
         set_error(error, error_capacity, "Invalid DA00 programming arguments.");
         return -1;
     }
@@ -452,14 +531,6 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
     state.error = error;
     state.error_cap = error_capacity;
     set_error(error, error_capacity, "");
-    if (clip46_plan_ccal(ccal_path, &plan) != 0 ||
-        plan.regions != 3U || plan.identity_regions != 1U ||
-        clip_cal_visit_ccal_regions(ccal_path, collect_identity, &state)
-            != CLIP_CAL_OK || !state.got_identity) {
-        set_error(error, error_capacity,
-                  "Expected a CRC-verified GTIS4.6 four-region CCAL.");
-        return -1;
-    }
 
     /* Reference flash sequence recorded at 16:08:14 through 16:15:55. */
     if (clip46_uds_begin_programming(io, error, error_capacity) != 0)
@@ -509,16 +580,19 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
 
     /* Identity metadata (0x02000000) comes FIRST in the OEM trace. */
     state.region_index = 0U;
-    if (flash_region(&state, 0x02000000UL,
-                     state.identity, sizeof(state.identity)) != 0)
+    if (flash_region(&state,
+                     image->regions[image->identity_index].address,
+                     image->regions[image->identity_index].bytes,
+                     image->regions[image->identity_index].length) != 0)
         goto fail;
 
-    if (clip_cal_visit_ccal_regions(ccal_path, flash_callback, &state) !=
-        CLIP_CAL_OK || state.failed) {
-        if (error && error[0] == '\0')
-            set_error(error, error_capacity,
-                      "DA00 failed before the calibration region completed.");
-        goto fail;
+    for (i = 0U; i < image->count; ++i) {
+        if (i == image->identity_index) continue;
+        if (flash_region(&state,
+                         image->regions[i].address,
+                         image->regions[i].bytes,
+                         image->regions[i].length) != 0)
+            goto fail;
     }
 
     report(io, 90, "GTIS4.6 UDS 31 01 FF01: flash finalize routine...");
@@ -539,13 +613,30 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
     set_error(error, error_capacity,
               "DA00 UDS sequence acknowledged; OEM encrypted CLIP commit "
               "and post-reset verification remain unimplemented.");
-    clip46_poc_wipe(state.identity, sizeof(state.identity));
     return 0;
 
 fail:
     clip46_poc_wipe(key, sizeof(key));
     clip46_poc_wipe(req, sizeof(req));
     clip46_poc_wipe(rx, sizeof(rx));
-    clip46_poc_wipe(state.identity, sizeof(state.identity));
     return -1;
+}
+
+int clip46_uds_flash(const struct clip46_uds_io *io,
+                     const struct clip46_uds_config *credentials,
+                     const char *ccal_path, char *error,
+                     size_t error_capacity)
+{
+    struct clip46_uds_image image;
+    int rc;
+    memset(&image, 0, sizeof(image));
+    if (clip46_uds_prepare_file(ccal_path, &image) != 0) {
+        set_error(error, error_capacity,
+                  "Invalid CCAL/DA00 image; nothing transmitted.");
+        return -1;
+    }
+    rc = clip46_uds_flash_prepared(io, credentials, &image,
+                                    error, error_capacity);
+    clip46_uds_free_image(&image);
+    return rc;
 }

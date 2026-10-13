@@ -35,6 +35,32 @@ int clip46_uds_flash(const struct clip46_uds_io *io,
                      const char *ccal_path,
                      char *error, size_t error_capacity);
 
+
+/*
+ * Parsed and CRC-verified CCAL in memory. Prepare this BEFORE opening any
+ * authenticated CLIP session; subsequent UDS operations never need to
+ * re-read or revalidate multi-megabyte disk files.
+ */
+#define CLIP46_UDS_MAX_REGIONS 4U
+struct clip46_uds_image_region {
+    unsigned long address;
+    unsigned long length;
+    unsigned char *bytes;
+};
+struct clip46_uds_image {
+    unsigned int count;
+    unsigned int identity_index;
+    struct clip46_uds_image_region regions[CLIP46_UDS_MAX_REGIONS];
+};
+
+int clip46_uds_prepare_file(const char *path, struct clip46_uds_image *image);
+void clip46_uds_free_image(struct clip46_uds_image *image);
+
+int clip46_uds_flash_prepared(const struct clip46_uds_io *io,
+                              const struct clip46_uds_config *credentials,
+                              const struct clip46_uds_image *image,
+                              char *error, size_t error_capacity);
+
 /* ISO-TP helper for controlled synthetic tests. */
 int clip46_uds_exchange(const struct clip46_uds_io *io,
                         const unsigned char *request, size_t request_len,
