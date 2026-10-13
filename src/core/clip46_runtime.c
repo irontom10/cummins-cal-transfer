@@ -32,6 +32,8 @@ clip46_runtime_load(struct clip46_runtime *cfg)
                              0, &cfg->secure_read);
     (void)ct_config_get_bool("experimental", "gtis46_da00_plan",
                              0, &cfg->da00_plan);
+    (void)ct_config_get_bool("experimental", "gtis46_live_programming",
+                             0, &cfg->live_programming);
     override = 0L;
     (void)ct_config_get_int("experimental", "gtis46_conn_override",
                             0L, &override);

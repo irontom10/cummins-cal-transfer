@@ -18,6 +18,7 @@ add_library(caltransfer SHARED
     ../../core/clip46_runtime.c
     ../../core/clip46_flash.c
     ../../core/clip46_plan.c
+    ../../core/clip46_uds.c
     ../../core/da00_sendkey.c
     ../../core/clip46_p256.c
     ../../core/clip_cal.c

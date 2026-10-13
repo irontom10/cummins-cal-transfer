@@ -21,6 +21,7 @@
 #include "clip46_p256.h"
 #include "clip46_runtime.h"
 #include "clip46_plan.h"
+#include "clip46_uds.h"
 #include "clip_cal.h"
 #include "ccal_crc.h"
 #include "ct_platform.h"
@@ -54,6 +55,7 @@
 #define PULL_ERR_LEGACY_TX_BLOCKED      -113
 #define PULL_ERR_POST_VERIFY            -114
 #define PULL_ERR_SECURE_POST_AUTH       -116
+#define PULL_ERR_PROGRAM_UNVERIFIED     -117
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
@@ -3970,6 +3972,108 @@ rp1210_pull_ccal(const char *api_name,
     return rc;
 }
 
+/* GTIS4.6 DA00 UDS transport adapters: a dedicated PGN 0x00DA00 client
+ * at source address 0xF9, separate from the existing CLIP 0xEF00 client.
+ * This is an actual J1939/ISO-TP transmitter, not an offline plan.
+ */
+struct clip46_live_context {
+    struct j1939_transport *transport;
+    RP1210_PROGRESS_CALLBACK progress;
+};
+
+static int
+clip46_live_send(void *user, const unsigned char frame[8])
+{
+    struct clip46_live_context *ctx;
+    ctx = (struct clip46_live_context *)user;
+    return j1939_transport_send(ctx->transport, frame, 8U) ==
+           J1939_TRANSPORT_OK ? 0 : -1;
+}
+
+static int
+clip46_live_recv(void *user, unsigned char frame[8], unsigned long timeout)
+{
+    struct clip46_live_context *ctx;
+    size_t len;
+    int rc;
+    ctx = (struct clip46_live_context *)user;
+    len = 0U;
+    rc = j1939_transport_receive(ctx->transport, frame, 8U,
+                                 &len, timeout);
+    return rc == J1939_TRANSPORT_OK && len == 8U ? 0 : -1;
+}
+
+static void
+clip46_live_progress(void *user, int percent, const char *message)
+{
+    struct clip46_live_context *ctx;
+    ctx = (struct clip46_live_context *)user;
+    if (ctx->progress != NULL)
+        ctx->progress(percent, message);
+}
+
+static int
+clip46_live_upload(const char *api_name, int device_id, int baud,
+                   unsigned char ecm_sa, const char *ccal_path,
+                   RP1210_PROGRESS_CALLBACK progress)
+{
+    struct clip46_uds_io io;
+    struct clip46_uds_config credentials;
+    struct clip46_live_context live;
+    struct j1939_transport *transport;
+    char error[512];
+    int rc;
+
+    memset(&credentials, 0, sizeof(credentials));
+    memset(&live, 0, sizeof(live));
+    memset(&io, 0, sizeof(io));
+    memset(error, 0, sizeof(error));
+    if (clip46_runtime_load_uds(&credentials) != 0) {
+        set_last_error_text("Invalid UDS [gtis46-config] fields; no programming traffic sent.");
+        return PULL_ERR_ARGUMENT;
+    }
+    transport = j1939_transport_create();
+    if (transport == NULL) {
+        clip46_poc_wipe(&credentials, sizeof(credentials));
+        set_last_error_text("Cannot allocate DA00 J1939 transport.");
+        return PULL_ERR_MEMORY;
+    }
+    if (progress)
+        progress(1, "GTIS4.6 live DA00: opening dedicated UDS/J1939 transport...");
+    rc = j1939_transport_open(transport, api_name, device_id, baud,
+                               0x00DA00UL, 6U,
+                               credentials.uds_tool_sa, ecm_sa);
+    if (rc != J1939_TRANSPORT_OK) {
+        set_last_error_text(j1939_transport_error(transport));
+        j1939_transport_destroy(transport);
+        clip46_poc_wipe(&credentials, sizeof(credentials));
+        return PULL_ERR_CONNECT;
+    }
+    live.transport = transport;
+    live.progress = progress;
+    io.user = &live;
+    io.send = clip46_live_send;
+    io.recv = clip46_live_recv;
+    io.progress = clip46_live_progress;
+    rc = clip46_uds_flash(&io, &credentials, ccal_path,
+                          error, sizeof(error));
+    j1939_transport_destroy(transport);
+    clip46_poc_wipe(&credentials, sizeof(credentials));
+    if (rc != 0) {
+        set_last_error_text(error[0] ? error :
+                            "Live GTIS4.6 DA00 UDS transfer failed.");
+        return PULL_ERR_UPLOAD;
+    }
+    set_last_error_text(error);
+    /*
+     * The ECM acknowledged the UDS image transfer and reset request.
+     * However, our OEM capture shows a subsequent encrypted CLIP service-11
+     * commit/verification stage. Do not falsely report full calibration
+     * success until we implement and verify that second stage.
+     */
+    return PULL_ERR_PROGRAM_UNVERIFIED;
+}
+
 int RP1210_CALL
 rp1210_upload_ccal(const char *api_name,
                    int device_id,
@@ -4007,6 +4111,13 @@ rp1210_upload_ccal(const char *api_name,
     if (clip46_runtime_load(&g_clip46_options) != 0) {
         set_last_error_text("Unable to load GTIS4.6 settings from config.toml.");
         return PULL_ERR_ARGUMENT;
+    }
+
+    if (g_clip46_options.live_programming) {
+        if (progress != NULL)
+            progress(0, "GTIS4.6 experimental LIVE DA00 programming enabled.");
+        return clip46_live_upload(api_name, device_id, baud,
+                                  ecm_sa, ccal_path, progress);
     }
 
     /*

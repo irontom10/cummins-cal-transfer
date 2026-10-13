@@ -7,6 +7,7 @@
 struct clip46_runtime {
     int secure_read;
     int da00_plan;
+    int live_programming;
     unsigned int conn_override;
 };
 

@@ -19,7 +19,9 @@ ecm_sa = 0x00
 
 [experimental]
 gtis46_secure_read = true
-gtis46_da00_plan = true
+gtis46_da00_plan = false
+# EXPERIMENTAL: enables physical DA00 CAN/ISO-TP writes. May corrupt ECM.
+gtis46_live_programming = true
 # Leave at zero to use dynamically computed acknowledgment count.
 gtis46_conn_override = 0
 
@@ -55,16 +57,27 @@ aes_key_hex = "<your separate 32-hex-digit UDS AES key>"
 - The existing legacy raw loader remains available for validated
   non-GTIS4.6 calibrations.
 - No environment variables are required or honored for GTIS4.6 options.
+- `gtis46_live_programming` selects the actual DA00 CAN/ISO-TP UDS
+  request sequence. With this explicitly enabled, Upload DOES transmit
+  SecurityAccess, RoutineControl, RequestDownload, TransferData,
+  TransferExit, and ECUReset. A positive response is checked at each step.
+  The flag overrides `gtis46_da00_plan` when both are enabled.
+- **Not complete OEM programming:** live transfer does not yet reproduce
+  CLIP protected mode transitions, post-flash encrypted service-11 commit,
+  OEM identity/value merge, or post-reset verification. The program returns
+  `-117` after an acknowledged DA00 sequence, rather than lying about
+  completing those OEM stages. Experimental transfer can leave the ECM
+  in a partly programmed state. Use a stationary authorized bench ECM.
 
 ## What is not yet implemented
 
-There is **no safe live GTIS4.6 uploader**. Passive capture leaves these
+There is now an experimental **live DA00 UDS programming sender**. Passive capture leaves these
 required steps unresolved: session-derived DA00 authentication `22 27 08`,
 prestream init/flow control, OEM identity/value merge, end-of-region
 header variants, encrypted `0x11` commit, and post-write recovery.
-The code must not guess the bytes or treat successful authentication
-as authorization to write. `gtis46_da00_plan = true` will finish with
-an explicit not-programmed result even when its frame plan succeeds.
+The experimental writer follows observed UDS commands but is not
+an OEM-equivalent programming sequence. It may fail before or during transfer. `gtis46_da00_plan = true` without the live switch produces the
+no-transmit count/validation report.
 
 The old GTIS4.6-to-legacy raw-loader fallthrough was removed because
 its second 24-bit layout check could abort after placing an ECM into
