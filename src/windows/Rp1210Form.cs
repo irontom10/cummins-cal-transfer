@@ -679,8 +679,8 @@ public sealed class Rp1210Form : Form
                 "Program this calibration into the ECM?\r\n\r\n" +
                 path +
                 "\r\n\r\nThe native uploader will verify the CCAL CRC " +
-                "before opening the RP1210 adapter. If CRC verification fails, " +
-                "no programming traffic is sent.",
+                "before transmitting calibration data. If CRC verification fails, " +
+                "no image data is sent.",
                 "Confirm Calibration Upload",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning,
@@ -735,6 +735,19 @@ public sealed class Rp1210Form : Form
                     "Calibration Upload",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
+            }
+            else if (rc == -117)
+            {
+                string status = GetNativeError();
+                statusLabel.Text = status;
+                MessageBox.Show(
+                    "The DA00 UDS transfer and reset were acknowledged.\r\n\r\n" +
+                    status + "\r\n\r\n" +
+                    "The later OEM protected CLIP commit has not been implemented. " +
+                    "The complete calibration is NOT verified.",
+                    "DA00 Transfer Completed - Commit Unverified",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
             }
             else
             {

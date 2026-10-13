@@ -1,13 +1,17 @@
-# GTIS4.6 experimental configuration and DA00 preparation
+# GTIS4.6 experimental mode
 
-All GTIS4.6 test switches use the **existing** `config.toml` store.
-On Windows it lives at `%USERPROFILE%\.config\CalibrationTransfer\config.toml`.
-On Linux, `~/.config/CalibrationTransfer/config.toml` (or `XDG_CONFIG_HOME`).
-Android continues using its app-private configuration path.
+Uses the existing C89 TOML configuration store; no batch-file or environment-variable switches.
 
-Example (populate the secrets with your own LOCAL values; do not commit):
+Configuration paths:
 
-```toml
+- Windows: %USERPROFILE%\.config\CalibrationTransfer\config.toml
+- Linux: ~/.config/CalibrationTransfer/config.toml (or XDG_CONFIG_HOME)
+- Android: app-private config.toml
+
+Copy your operator-owned credentials into **your local configuration only**.
+Do not commit keys or captured seeds to GitHub.
+
+~~~toml
 [adapter]
 api = "NULN3R32"
 device = 2
@@ -20,66 +24,72 @@ ecm_sa = 0x00
 [experimental]
 gtis46_secure_read = true
 gtis46_da00_plan = false
-# EXPERIMENTAL: enables physical DA00 CAN/ISO-TP writes. May corrupt ECM.
 gtis46_live_programming = true
-# Leave at zero to use dynamically computed acknowledgment count.
 gtis46_conn_override = 0
 
 [gtis46-config]
-KEY_HEX = "<your local 32-hex-character CLIP key>"
-CONTEXT_HEX = "<your local 102-hex-character CLIP context>"
 tool_version = "000F"
 tool_instance = "10000006"
-tool_family = "<12 hex digits for the 6-byte family>"
+tool_family = "<12 hex digits>"
 include_optional = true
 optional_byte = "02"
 uds_tool_sa = "F9"
-aes_key_hex = "<your separate 32-hex-digit UDS AES key>"
-# No manual PKCS#7 setting: padded automatically by the crypto code.
-```
+aes_key_hex = "<32 hexadecimal digits>"
+KEY_HEX = "<independent CLIP 02 03 key>"
+CONTEXT_HEX = "<CLIP context hex>"
+~~~
 
-- `gtis46_secure_read` opts into fresh P-256/ECDH protected **read** sessions.
-- `gtis46_da00_plan` opts into a **no-transmit** CCAL-to-DA00 framing plan
-  when selecting Upload. It validates all file CRC checks, parses the CCAL
-  without legacy 24-bit restrictions, counts region announcements and
-  DA00 superblocks, and stops BEFORE opening an RP1210 connection.
-- Missing or malformed authentication material blocks the handshake.
-- \`clip46_runtime_load_uds()\` parses the independent UDS 0x27 08
-  \`tool_version\`, \`tool_instance\`, \`tool_family\`,
-  \`include_optional\`, \`optional_byte\`, \`uds_tool_sa\`,
-  and \`aes_key_hex\` settings as fixed-width values. A pure offline
-  \`clip46_runtime_build_uds_sendkey()\` computes the 32-byte cryptogram
-  from a caller-supplied 32-byte seed and wipes the AES key afterward.
-  PKCS#7 is automatic, and no UDS traffic is sent.
-- The 0x02000000/16-byte identity region is tracked separately; INSITE
-  carries it in a special header and merges existing ECM identity into
-  the image. This plan does NOT reproduce that merge.
-- The existing legacy raw loader remains available for validated
-  non-GTIS4.6 calibrations.
-- No environment variables are required or honored for GTIS4.6 options.
-- `gtis46_live_programming` selects the actual DA00 CAN/ISO-TP UDS
-  request sequence. With this explicitly enabled, Upload DOES transmit
-  SecurityAccess, RoutineControl, RequestDownload, TransferData,
-  TransferExit, and ECUReset. A positive response is checked at each step.
-  The flag overrides `gtis46_da00_plan` when both are enabled.
-- **Not complete OEM programming:** live transfer does not yet reproduce
-  CLIP protected mode transitions, post-flash encrypted service-11 commit,
-  OEM identity/value merge, or post-reset verification. The program returns
-  `-117` after an acknowledged DA00 sequence, rather than lying about
-  completing those OEM stages. Experimental transfer can leave the ECM
-  in a partly programmed state. Use a stationary authorized bench ECM.
+## Behavior
 
-## What is not yet implemented
+With gtis46_live_programming=true, pressing the ordinary **Upload**
+button uses a new physical J1939 connection on PGN 0xDA00 and the
+configured UDS source address (F9 in the example). It performs:
 
-There is now an experimental **live DA00 UDS programming sender**. Passive capture leaves these
-required steps unresolved: session-derived DA00 authentication `22 27 08`,
-prestream init/flow control, OEM identity/value merge, end-of-region
-header variants, encrypted `0x11` commit, and post-write recovery.
-The experimental writer follows observed UDS commands but is not
-an OEM-equivalent programming sequence. It may fail before or during transfer. `gtis46_da00_plan = true` without the live switch produces the
-no-transmit count/validation report.
+1. DiagnosticSessionControl 10 02.
+2. Fresh SecurityAccess RequestSeed 27 07; derives AES-CBC/PKCS#7
+   SendKey 27 08 from the returned 32-byte seed and local tool metadata.
+3. RoutineControl 31 01 FF00 (prepare; observes 7F 31 78 pending).
+4. Four RequestDownload / TransferData / TransferExit regions in captured
+   order, starting with 0x02000000 and then three contiguous CCAL regions.
+   Transfers 1496 bytes of image data per 36 request with UDS sequence
+   rollover and verifies the ECM's 76 acknowledgments.
+5. RoutineControl 31 01 FF01 and ECUReset 11 01.
 
-The old GTIS4.6-to-legacy raw-loader fallthrough was removed because
-its second 24-bit layout check could abort after placing an ECM into
-programming mode. Real DA00 transmission will need a separate,
-verified state machine and a bench recovery procedure.
+ISO-TP first/consecutive frames, flow control, block size, STmin, and
+multi-frame responses use an independently testable C89 codec.
+The writer verifies CRC/Intel-HEX and requires exactly three bulk
+regions plus one 16-byte identity region. The earlier 24-bit raw-loader
+validator is not used by this path.
+
+If gtis46_live_programming=false and gtis46_da00_plan=true, pressing
+Upload performs the existing **offline, no-transmit frame plan**.
+
+## Actual verification status
+
+The AES-128-CBC cryptogram with supplied tool metadata was compared
+against the October 11, 2026 OEM capture: exact **32/32 bytes** for
+the one recorded accepted 27 08 exchange. Fresh-session acceptance is
+still to be determined on hardware. The physical programming path has
+not been tested against an ECM. A rejection/error at any stage stops
+transmission and reports that stage and (when available) UDS NRC.
+
+This is NOT yet a complete INSITE-equivalent flash sequence:
+
+- The OEM performs protected CLIP unlock/mode transitions **before**
+  DA00 SecurityAccess. The new uploader does not reproduce those.
+  Consequently the ECM may reject a UDS programming service.
+- The OEM's final protected CLIP service-11 commit and later status
+  verification are not implemented. After a fully acknowledged DA00 UDS
+  transfer, the tool reports **-117: commit unverified**. The UI
+  distinguishes that from a transport/programming failure.
+- The OEM's INCAL-to-ECM identity/value merge is absent. A selected CCAL
+  is transmitted verbatim, including its 16-byte metadata range, and
+  may differ from OEM programming data.
+- The code reproduces UDS transfer size/framing but has not reproduced
+  every special end-of-region wire-header variant observed from the
+  NEXIQ driver.
+
+This is live experimental ECM programming: it can alter nonvolatile
+memory and may leave the ECM unusable or requiring an OEM recovery.
+The operator controls the feature through TOML, rather than a fixed
+application policy.

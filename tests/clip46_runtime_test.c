@@ -29,6 +29,7 @@ int main(void)
     fputs("[experimental]\n"
           "gtis46_secure_read = true\n"
           "gtis46_da00_plan = true\n"
+          "gtis46_live_programming = true\n"
           "gtis46_conn_override = 11\n"
           "[gtis46-config]\n"
           "KEY_HEX = \"000102030405060708090A0B0C0D0E0F\"\n"
@@ -46,7 +47,7 @@ int main(void)
     fclose(fp);
     if (ct_config_load_path(path) != 0 ||
         clip46_runtime_load(&cfg) != 0 ||
-        !cfg.secure_read || !cfg.da00_plan ||
+        !cfg.secure_read || !cfg.da00_plan || !cfg.live_programming ||
         cfg.conn_override != 11U ||
         clip46_runtime_load_secrets(&secrets) != 0 ||
         secrets.key[0] != 0U || secrets.key[15] != 15U ||

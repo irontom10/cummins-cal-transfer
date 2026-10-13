@@ -174,7 +174,7 @@ int clip46_uds_exchange(const struct clip46_uds_io *io,
                         unsigned char *reply, size_t reply_capacity,
                         size_t *reply_len, unsigned long timeout_ms)
 {
-    unsigned long start, now, left;
+    unsigned long start, now, left, last_keepalive;
     size_t len;
     if (!request || request_len == 0U ||
         !reply || !reply_len || timeout_ms == 0U)
@@ -183,6 +183,7 @@ int clip46_uds_exchange(const struct clip46_uds_io *io,
     if (iso_send(io, request, request_len) != 0)
         return -1;
     start = ct_monotonic_ms();
+    last_keepalive = start;
     for (;;) {
         now = ct_monotonic_ms();
         if ((unsigned long)(now - start) >= timeout_ms)
@@ -192,8 +193,20 @@ int clip46_uds_exchange(const struct clip46_uds_io *io,
         if (iso_receive(io, reply, reply_capacity, &len, left) != 0)
             return -1;
         if (len >= 3U && reply[0] == 0x7FU &&
-            reply[1] == request[0] && reply[2] == 0x78U)
-            continue; /* NRC ResponsePending */
+            reply[1] == request[0] && reply[2] == 0x78U) {
+            /* Suppressed-response TesterPresent, as in the OEM capture.
+             * Keep the diagnostic session alive through long FF00 routines. */
+            if ((unsigned long)(ct_monotonic_ms() - last_keepalive) > 2000UL) {
+                unsigned char alive[2];
+                alive[0] = 0x3EU;
+                alive[1] = 0x80U;
+                if (iso_send(io, alive, sizeof(alive)) != 0)
+                    return -1;
+                last_keepalive = ct_monotonic_ms();
+                /* Keepalive does NOT reset the absolute request deadline. */
+            }
+            continue;
+        }
         *reply_len = len;
         if (len == 0U || reply[0] !=
             (unsigned char)((request[0] + 0x40U) & 0xFFU))
@@ -270,7 +283,9 @@ static int flash_region(struct region_context *state,
                UDS_DEFAULT_TIMEOUT, state->error, state->error_cap,
                "RequestDownload (34)") != 0)
         return -1;
-    if (rx_len < 4U || rx[1] != 0x20U) {
+    if (rx_len < 4U || rx[1] != 0x20U ||
+        (((unsigned int)rx[2] << 8) | (unsigned int)rx[3]) <
+            UDS_CHUNK + 2U) {
         set_error(state->error, state->error_cap,
                   "RequestDownload returned unexpected max-block length.");
         return -1;
