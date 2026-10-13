@@ -4,6 +4,8 @@
  * implicit opt-in. Android's previously loaded private config is reused.
  */
 #include "clip46_runtime.h"
+/* Core embeds config_store.c in its native library on Windows. */
+#define CT_CONFIG_EXPORTS
 #include "config_store.h"
 #include <string.h>
 
