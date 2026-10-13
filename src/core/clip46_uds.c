@@ -447,6 +447,8 @@ static int prepare_region(void *user, unsigned long address,
         len > 0xffffffffUL - address ||
         image->count >= CLIP46_UDS_MAX_REGIONS)
         return -1;
+    if (len > 32UL * 1024UL * 1024UL)
+        return -1;
     total = len;
     for (i = 0U; i < image->count; ++i) {
         if (image->regions[i].length > 32UL * 1024UL * 1024UL - total)

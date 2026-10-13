@@ -113,3 +113,21 @@ application policy.
 
 The DA00 RP1210 client opens **before** protected CLIP authentication to
 avoid the previous 7.48-second idle gap between CLIP 0x000B and KWP2 10 02.
+
+## Protected-session latency and state diagnostic
+
+The October 13 bench trace replied 7F 10 22 to UDS 10 02,
+while DID 86CA reported 0x000017F6; the October 11 OEM capture
+returned 0x00000007 in all four observed DID 86CA responses.
+The interpretation of DID 86CA is UNKNOWN. Never convert those bytes
+directly into a CLIP mode control or treat them as a flash permission.
+
+Previously clip46_uds_flash reread the CCAL multiple times after protected
+CLIP state entry, leaving a multi-second gap before UDS. The new
+clip46_uds_prepare_file loads all four ranges into a bounded 32-MiB
+in-memory image BEFORE any CLIP authentication, and the sender takes
+that prepared image without disk I/O. The ISO-TP/KWP probes and UDS 10 02
+run immediately after the protected 0x000B response.
+
+If a later trace still gives 7F 10 22, inspect the missing OEM
+encrypted CLIP flash-mode transitions instead of blindly retrying 10 02.

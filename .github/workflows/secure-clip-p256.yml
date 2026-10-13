@@ -17,7 +17,7 @@ jobs:
           /tmp/da00_sendkey
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_flash_test.c src/core/clip46_flash.c -o /tmp/clip46_flash
           /tmp/clip46_flash
-          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core tests/clip46_plan_test.c src/core/clip46_plan.c src/core/clip46_flash.c src/core/clip_cal.c src/core/ccal_crc.c src/core/ct_platform.c -o /tmp/clip46_plan
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_plan_test.c src/core/clip46_plan.c src/core/clip46_flash.c src/core/clip46_uds.c src/core/clip_cal.c src/core/ccal_crc.c src/core/da00_sendkey.c src/core/clip46_poc_secure.c src/core/ct_platform.c -o /tmp/clip46_plan
           /tmp/clip46_plan
           cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core tests/clip46_uds_test.c src/core/clip46_uds.c src/core/clip46_plan.c src/core/clip46_flash.c src/core/clip_cal.c src/core/ccal_crc.c src/core/da00_sendkey.c src/core/clip46_poc_secure.c src/core/ct_platform.c -o /tmp/clip46_uds
           /tmp/clip46_uds
