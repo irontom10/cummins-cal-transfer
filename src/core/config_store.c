@@ -219,26 +219,6 @@ ct_read_line(FILE *fp)
     return buffer;
 }
 
-static char *
-ct_ltrim(char *text)
-{
-    while (*text != '\0' && isspace((unsigned char)*text))
-        ++text;
-    return text;
-}
-
-static void
-ct_rtrim(char *text)
-{
-    size_t n;
-
-    n = strlen(text);
-    while (n != 0U && isspace((unsigned char)text[n - 1U])) {
-        --n;
-        text[n] = '\0';
-    }
-}
-
 static int
 ct_copy_text(char *out, int out_size, const char *text)
 {
@@ -740,11 +720,11 @@ ct_join_path(char *out,
 static int
 ct_build_default_path(char *out, int out_size)
 {
-    char base[CT_PATH_CAP];
     char config_dir[CT_PATH_CAP];
     char app_dir[CT_PATH_CAP];
 
 #ifdef _WIN32
+    char base[CT_PATH_CAP];
     if (!ct_get_windows_home(base, (int)sizeof(base))) {
         ct_set_error("USERPROFILE is unavailable; cannot resolve ~/.config.");
         return 0;
@@ -1293,10 +1273,10 @@ ct_config_save(void)
         return -1;
     }
 
-    sprintf(temp_path,
-            "%s.%lu.tmp",
-            g_path,
-            ct_process_id());
+    /* The size check above reserves 32 bytes for the PID suffix.
+     * Append separately so a long, valid path cannot overflow. */
+    strcpy(temp_path, g_path);
+    sprintf(temp_path + strlen(temp_path), ".%lu.tmp", ct_process_id());
 
     fp = ct_fopen_path(temp_path, "wb");
     if (fp == NULL) {
