@@ -1,3 +1,5 @@
+> **2026-10-13 update:** The experimental branch now uses config.toml, not CLIP46_POC_* environment variables; see [current configuration](gtis46-config-da00.md). Earlier test commands below are historical.
+
 # Experimental CM2450E / GTIS4.6 secure CLIP ECDH
 
 **Branch:** `experiment/cm2450e-secure-clip-poc`

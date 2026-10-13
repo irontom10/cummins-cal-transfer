@@ -1,5 +1,13 @@
 # CM2450E / GTIS4.6 secure flash — passive capture analysis
 
+> **Implementation status (2026-10-13):** The earlier staged legacy
+> loader-transition experiment described below has been retired. The
+> current branch reads experimental settings from `config.toml` and
+> prepares a **no-transmit DA00 CCAL plan**. See
+> [GTIS4.6 experimental configuration](gtis46-config-da00.md).
+> No live GTIS4.6 image writes or commit phase are implemented.
+
+
 **Capture:** `insite-clip-id-tracer/flash_capture_20261011-160358.tsv`
 (1,302,489 rows, 2026-10-11 16:03:59 – 16:22:09, ~18 minutes)
 **Event:** OEM INSITE installing a calibration on a CM2450E over the
