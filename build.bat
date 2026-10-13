@@ -71,26 +71,15 @@ if exist "%BUILD%" rmdir /S /Q "%BUILD%"
 mkdir "%OBJ%" "%NATIVE%" "%APP%" "%TOOLS%"
 if errorlevel 1 goto :fail
 
-echo [1/4] Building shared TOML configuration store...
+echo [1/4] Building native RP1210, J1939, and calibration protocol core...
 pushd "%OBJ%"
-cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /c /Fo:config_store.obj "%SRC_CORE%\config_store.c"
-if errorlevel 1 goto :fail_from_obj
-link /nologo /DLL /MACHINE:X86 ^
-    /DEF:"%SRC_WIN_NATIVE%\config_store.def" ^
-    /OUT:"%NATIVE%\ctconfig.dll" ^
-    /IMPLIB:"%NATIVE%\ctconfig.lib" ^
-    /PDB:"%NATIVE%\ctconfig.pdb" ^
-    config_store.obj kernel32.lib
-if errorlevel 1 goto :fail_from_obj
-
-echo [2/4] Building native RP1210, J1939, and calibration protocol core...
-
 cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATIVE%" /c ^
     "%SRC_WIN_NATIVE%\rp1210scan.c" ^
     "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
     "%SRC_CORE%\j1939_transport.c" ^
     "%SRC_CORE%\ct_platform.c" ^
     "%SRC_CORE%\clip_transfer.c" ^
+    "%SRC_CORE%\config_store.c" ^
     "%SRC_CORE%\echo_transfer.c" ^
     "%SRC_CORE%\clip_crypto.c" ^
     "%SRC_CORE%\clip46_poc_secure.c" ^
@@ -109,7 +98,17 @@ link /nologo /DLL /MACHINE:X86 ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
     rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip46_poc_secure.obj clip46_runtime.obj clip46_flash.obj clip46_plan.obj da00_sendkey.obj clip46_p256.obj clip_cal.obj ccal_crc.obj ^
-    "%NATIVE%\ctconfig.lib" kernel32.lib user32.lib advapi32.lib
+    config_store.obj kernel32.lib user32.lib advapi32.lib
+if errorlevel 1 goto :fail_from_obj
+
+echo [2/4] Building standalone UI config store...
+rem Link the same C89 object as a separate DLL for the existing UI.
+link /nologo /DLL /MACHINE:X86 ^
+    /DEF:"%SRC_WIN_NATIVE%\config_store.def" ^
+    /OUT:"%NATIVE%\ctconfig.dll" ^
+    /IMPLIB:"%NATIVE%\ctconfig.lib" ^
+    /PDB:"%NATIVE%\ctconfig.pdb" ^
+    config_store.obj kernel32.lib
 if errorlevel 1 goto :fail_from_obj
 
 echo [3/4] Building CRC utility...
