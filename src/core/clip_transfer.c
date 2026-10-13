@@ -4019,36 +4019,124 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
 {
     struct clip46_uds_io io;
     struct clip46_uds_config credentials;
+    struct clip46_plan_stats preflight_plan;
     struct clip46_live_context live;
+    struct pull_ctx clip;
     struct j1939_transport *transport;
+    clip_u8 sequence;
     char error[512];
     int rc;
+    int result;
+    int clip_authenticated;
+    int clip_prepared;
 
     memset(&credentials, 0, sizeof(credentials));
+    memset(&preflight_plan, 0, sizeof(preflight_plan));
     memset(&live, 0, sizeof(live));
+    memset(&clip, 0, sizeof(clip));
     memset(&io, 0, sizeof(io));
     memset(error, 0, sizeof(error));
-    if (clip46_runtime_load_uds(&credentials) != 0) {
-        set_last_error_text("Invalid UDS [gtis46-config] fields; no programming traffic sent.");
+    transport = NULL;
+    clip_authenticated = 0;
+    clip_prepared = 0;
+    result = PULL_ERR_SECURE_POST_AUTH;
+
+    if (!g_clip46_options.secure_read) {
+        set_last_error_text("Live GTIS4.6 requires [experimental] "
+                            "gtis46_secure_read=true to establish CLIP "
+                            "before opening the DA00 programming session.");
         return PULL_ERR_ARGUMENT;
     }
+    /*
+     * Reject a bad or unsupported image BEFORE opening CLIP or sending
+     * anything to the ECM. There are precisely three stream regions
+     * and one 16-byte high-address identity record.
+     */
+    if (clip46_plan_ccal(ccal_path, &preflight_plan) != 0 ||
+        preflight_plan.regions != 3U ||
+        preflight_plan.identity_regions != 1U) {
+        set_last_error_text("GTIS4.6 CCAL CRC/layout validation failed "
+                            "before CLIP/UDS programming traffic.");
+        return PULL_ERR_CAL;
+    }
+
+    if (clip46_runtime_load_uds(&credentials) != 0) {
+        set_last_error_text("Invalid UDS [gtis46-config] fields; "
+                            "no ECM traffic was sent.");
+        return PULL_ERR_ARGUMENT;
+    }
+
+    /*
+     * CLIP is the control plane (0xEF00). INSITE obtains a protected
+     * GTIS4.6 session before issuing UDS 10 02 over 0xDA00.
+     * Reuse our existing fresh P-256/02 03 handshake and the reference
+     * multi-query + 0x000B state-entry preflight from secure READ.
+     * Do NOT silently fall into the legacy 24-bit raw uploader.
+     */
+    clip.session_id = 0x01U;
+    clip.wire_slot = 0U;
+    clip.progress = progress;
+    clip.clip46_read_only_workflow = 1;
+
+    if (progress != NULL)
+        progress(1, "GTIS4.6 step 1: opening CLIP PGN EF00 before UDS...");
+    rc = open_j1939_transport(&clip, api_name, device_id, baud,
+                              credentials.clip_tool_sa, ecm_sa);
+    if (rc != PULL_OK) {
+        result = rc;
+        goto done;
+    }
+    rc = clip_authenticate(&clip);
+    if (rc != PULL_OK || !clip.clip46_secure) {
+        if (rc == PULL_OK || rc > 0)
+            set_last_error_text("ECM did not establish a GTIS4.6 "
+                                "protected CLIP session. UDS 10 02 "
+                                "was NOT transmitted.");
+        result = rc == PULL_OK || rc > 0 ?
+                 PULL_ERR_SECURE_POST_AUTH : rc;
+        goto done;
+    }
+    clip_authenticated = 1;
+    sequence = 0x02U; /* authenticated first 10 01 used sequence 01 */
+    if (progress != NULL)
+        progress(10, "GTIS4.6 step 2: protected CLIP multi-query 10 02...");
+    rc = cal_preflight_multi_query(&clip, &sequence);
+    if (rc != PULL_OK) {
+        result = rc;
+        goto done;
+    }
+    if (progress != NULL)
+        progress(12, "GTIS4.6 step 3: protected CLIP 12 03 (state 000B)...");
+    rc = cal_enter_0b_state(&clip, &sequence, 1);
+    if (rc != PULL_OK) {
+        result = rc;
+        goto done;
+    }
+    clip_prepared = 1;
+    if (progress != NULL)
+        progress(15, "GTIS4.6 CLIP preflight acknowledged; opening DA00 UDS...");
+
+    /*
+     * Open DA00 in a separate RP1210/J1939 client. The CLIP client stays
+     * alive during the transfer, matching the OEM's split control/data
+     * plane. clip_tool_sa may be F1 while UDS uses F9, if a vendor driver
+     * refuses two protect-address claims at the same source address.
+     */
     transport = j1939_transport_create();
     if (transport == NULL) {
-        clip46_poc_wipe(&credentials, sizeof(credentials));
         set_last_error_text("Cannot allocate DA00 J1939 transport.");
-        return PULL_ERR_MEMORY;
+        result = PULL_ERR_MEMORY;
+        goto done;
     }
-    if (progress)
-        progress(1, "GTIS4.6 live DA00: opening dedicated UDS/J1939 transport...");
     rc = j1939_transport_open(transport, api_name, device_id, baud,
                                0x00DA00UL, 6U,
                                credentials.uds_tool_sa, ecm_sa);
     if (rc != J1939_TRANSPORT_OK) {
         set_last_error_text(j1939_transport_error(transport));
-        j1939_transport_destroy(transport);
-        clip46_poc_wipe(&credentials, sizeof(credentials));
-        return PULL_ERR_CONNECT;
+        result = PULL_ERR_CONNECT;
+        goto done;
     }
+
     live.transport = transport;
     live.progress = progress;
     io.user = &live;
@@ -4057,21 +4145,38 @@ clip46_live_upload(const char *api_name, int device_id, int baud,
     io.progress = clip46_live_progress;
     rc = clip46_uds_flash(&io, &credentials, ccal_path,
                           error, sizeof(error));
-    j1939_transport_destroy(transport);
-    clip46_poc_wipe(&credentials, sizeof(credentials));
     if (rc != 0) {
-        set_last_error_text(error[0] ? error :
-                            "Live GTIS4.6 DA00 UDS transfer failed.");
-        return PULL_ERR_UPLOAD;
+        /* Preserve precise NRC: e.g. 7F 10 22 conditions-not-correct.
+         * The now-verified CLIP prelude eliminates skipping CLIP as a
+         * cause, but not missing proprietary flash-mode transitions. */
+        if (error[0])
+            set_last_error_text(error);
+        else
+            set_last_error_text("Live GTIS4.6 DA00 UDS transfer failed.");
+        result = PULL_ERR_UPLOAD;
+        goto done;
     }
+
     set_last_error_text(error);
-    /*
-     * The ECM acknowledged the UDS image transfer and reset request.
-     * However, our OEM capture shows a subsequent encrypted CLIP service-11
-     * commit/verification stage. Do not falsely report full calibration
-     * success until we implement and verify that second stage.
-     */
-    return PULL_ERR_PROGRAM_UNVERIFIED;
+    /* A DA00 UDS success does not prove the encrypted OEM CLIP
+     * service-11 commit or any post-reset verification. */
+    result = PULL_ERR_PROGRAM_UNVERIFIED;
+
+done:
+    /* Close CLIP after DA00 has been allowed to run, not before.
+     * This is deliberately best-effort and must not overwrite the
+     * original per-stage error on failure. */
+    if (transport != NULL)
+        j1939_transport_destroy(transport);
+    if (clip.transport != NULL) {
+        if (clip_authenticated)
+            (void)clip_send_close(&clip);
+        close_j1939_transport(&clip);
+    }
+    clip46_poc_wipe(&credentials, sizeof(credentials));
+    if (clip_prepared && progress != NULL && result == PULL_ERR_UPLOAD)
+        progress(0, "GTIS4.6 CLIP preflight succeeded; DA00 rejected a subsequent UDS step.");
+    return result;
 }
 
 int RP1210_CALL

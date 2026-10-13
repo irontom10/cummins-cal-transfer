@@ -42,6 +42,7 @@ int main(void)
           "include_optional = true\n"
           "optional_byte = \"02\"\n"
           "uds_tool_sa = \"F9\"\n"
+          "clip_tool_sa = \"F1\"\n"
           "aes_key_hex = \"000102030405060708090A0B0C0D0E0F\"\n",
           fp);
     fclose(fp);
@@ -59,6 +60,7 @@ int main(void)
         uds.include_optional != 1 ||
         uds.optional_byte != 2U ||
         uds.uds_tool_sa != 0xF9U ||
+        uds.clip_tool_sa != 0xF1U ||
         uds.tool_family[5] != 6U)
         return 3;
     for (i = 0U; i < 32U; ++i)

@@ -23,6 +23,7 @@ struct clip46_uds_config {
     unsigned char tool_family[6];
     unsigned char optional_byte;
     unsigned char uds_tool_sa;
+    unsigned char clip_tool_sa;
     int include_optional;
     unsigned char aes_key[16];
 };

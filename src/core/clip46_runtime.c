@@ -89,6 +89,8 @@ clip46_runtime_load_uds(struct clip46_uds_config *cfg)
     unsigned char inst[4];
     unsigned char optional[1];
     unsigned char address[1];
+    unsigned char clip_address[1];
+    char sa_text[16];
     int ok;
 
     if (cfg == NULL)
@@ -98,6 +100,8 @@ clip46_runtime_load_uds(struct clip46_uds_config *cfg)
     memset(inst, 0, sizeof(inst));
     memset(optional, 0, sizeof(optional));
     memset(address, 0, sizeof(address));
+    memset(clip_address, 0, sizeof(clip_address));
+    memset(sa_text, 0, sizeof(sa_text));
     ok = ensure_loaded() == 0 &&
          get_hex_field("tool_version", ver, sizeof(ver)) == 0 &&
          get_hex_field("tool_instance", inst, sizeof(inst)) == 0 &&
@@ -109,6 +113,16 @@ clip46_runtime_load_uds(struct clip46_uds_config *cfg)
                        sizeof(cfg->aes_key)) == 0 &&
          ct_config_get_bool("gtis46-config", "include_optional", 0,
                             &cfg->include_optional);
+    /* A separate CLIP address lets the tool reproduce both 0xF1 and 0xF9
+     * OEM preflight sessions without conflating the DA00 tester address.
+     * Default is 0xF9 to keep CLIP + UDS on the same ECM tester identity. */
+    if (ok) {
+        (void)ct_config_get_string("gtis46-config", "clip_tool_sa",
+                                   "F9", sa_text, (int)sizeof(sa_text));
+        if (clip46_poc_decode_hex(sa_text, clip_address, 1U) != 0 ||
+            clip_address[0] == 0xFFU)
+            ok = 0;
+    }
     if (ok) {
         cfg->tool_version = ((unsigned int)ver[0] << 8) |
                             (unsigned int)ver[1];
@@ -118,6 +132,7 @@ clip46_runtime_load_uds(struct clip46_uds_config *cfg)
                              (unsigned long)inst[3];
         cfg->optional_byte = optional[0];
         cfg->uds_tool_sa = address[0];
+        cfg->clip_tool_sa = clip_address[0];
     } else {
         clip46_poc_wipe(cfg, sizeof(*cfg));
     }
@@ -125,6 +140,8 @@ clip46_runtime_load_uds(struct clip46_uds_config *cfg)
     clip46_poc_wipe(inst, sizeof(inst));
     clip46_poc_wipe(optional, sizeof(optional));
     clip46_poc_wipe(address, sizeof(address));
+    clip46_poc_wipe(clip_address, sizeof(clip_address));
+    clip46_poc_wipe(sa_text, sizeof(sa_text));
     return ok ? 0 : -1;
 }
 
