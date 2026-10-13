@@ -1284,6 +1284,18 @@ ct_config_save(void)
         return -1;
     }
 
+#ifndef _WIN32
+    /* The same TOML may contain local authentication keys. Tighten the
+     * temporary file before writing anything, so atomic replacement
+     * cannot turn a private config into a world-readable one. */
+    if (chmod(temp_path, S_IRUSR | S_IWUSR) != 0) {
+        fclose(fp);
+        ct_remove_path(temp_path);
+        ct_set_error("Cannot protect temporary config.toml permissions.");
+        return -1;
+    }
+#endif
+
 #ifdef _WIN32
     line_end = "\r\n";
 #else
