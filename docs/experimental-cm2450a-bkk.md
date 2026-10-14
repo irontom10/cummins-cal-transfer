@@ -58,34 +58,41 @@ correct ordering, or recovery after interrupted programming. The test
 transport only supplies mocked acknowledgements. Successful structural
 preflight and mock writes do not make a live flash safe.
 
-## Experimental already-unlocked response (2026-10-14)
+## Experimental negative unlock response (2026-10-14)
 
-`caltoollog.6.jlog` captured these two application-level transactions:
+The actual J1939 CLIP application bytes in `caltoollog.7.jlog` are:
 
 ```text
-12 16 00 18 00  ->  01 16 FF FC   (attempted unlock)
-12 17 00 18 01  ->  01 17 FF FC   (attempted rollback/re-lock)
+12 16 00 18 00  ->  03 16 FF FC   (attempted unlock)
+12 17 00 18 01  ->  03 17 FF FC   (attempted rollback/re-lock)
 ```
 
-Neither is the proven successful `01 <seq> FF FF` acknowledgement.
-There are **no raw loader-entry requests or calibration writes** in this capture.
-The same `FF FC` reply appears on a requested lock, so the exact semantic
-meaning of this status is not independently proven.
+**Important:** `03` is a **negative-response service**, not the positive
+`01` service. The earlier note that the reply was `01 16 FF FC` was wrong.
+`FF FC` has not been proven to mean already unlocked.
 
-On this branch only, for a requested **`0x0018` unlock (`value=0`)**,
-an exact matching `01 <seq> FF FC` reply is treated provisionally as
-"possibly already unlocked"; the upload coordinator logs that fact and
-continues to the ordinary upload preflight/loader transition. It does **not**
-treat FF FC as proof that the ECM is unlocked.
+The generic `clip_exchange()` handler normally rejects negative service
+`03`, returning `PULL_ERR_PROTOCOL` (`-106`) before a specialized lock
+parser can inspect the payload. On this experimental branch, only when
+issuing `12 <seq> 00 18 00` (calibration **unlock**), the caller briefly
+enables negative-response delivery, restoring normal behavior immediately
+after the transaction. The specialized `clip_cal_parse_unlock_ack()` then:
 
-A requested **re-lock (`value=1`)** still requires `01 <seq> FF FF`.
-Unexpected replies, wrong sequence, short messages, unrelated negative
-responses and transport errors still abort. An error before loader entry
-does not send an automatic re-lock when the initial response indicated an
-already-unlocked condition (this preserves the initial state, as far as
-the tool can tell). Loader failure and post-upload recovery retain their
-existing confirmation requirements.
+- returns success only for `01 <seq> FF FF`;
+- returns a **provisional** already-unlocked indicator for
+  **exactly** `03 <seq> FF FC`;
+- rejects every other service, status, sequence or length.
 
-**Live boundary:** a parser accepting FF FC is not proof that the CM2450A
-permits programming. Do not claim success without the raw loader handshake,
-a complete transfer, application recovery, and a confirmed re-lock.
+The coordinator continues from this provisional result through the normal
+`cal_prepare_programming()` query sequence and `12 <seq> 00 17 00`
+loader transition. **Loader entry must still be accepted**; this does not
+force the ECM into programming mode or suppress subsequent errors.
+
+A requested re-lock still requires the known positive `01 <seq> FF FF`.
+When a pre-loader error follows a provisional already-unlocked condition,
+the tool does not issue an extra re-lock that could change the prior state.
+Post-loader recovery and re-lock confirmation requirements are unchanged.
+
+**Not established:** exact negative-status semantics, live BKK loader-entry
+acceptance, the `0x4B` high-address write order, and successful recovery.
+A test passing and a recognized negative response do not prove safe flashing.
