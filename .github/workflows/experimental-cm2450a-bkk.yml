@@ -1,0 +1,38 @@
+name: Experimental CM2450A BKK
+
+on:
+  push:
+    branches:
+      - experimental/cm2450a-bkk-high-metadata
+
+jobs:
+  protocol-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run C89 calibration protocol tests
+        shell: bash
+        run: |
+          mkdir -p build/tests
+          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
+            tests/clip_cal_protocol_test.c \
+            src/core/clip_cal.c \
+            src/core/ccal_crc.c \
+            src/core/ct_platform.c \
+            -o build/tests/clip_cal_protocol_test
+          build/tests/clip_cal_protocol_test
+
+  windows-x86:
+    needs: protocol-tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build experimental WinAPI x86 executable
+        shell: cmd
+        run: build.bat
+      - name: Archive experimental executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-cm2450a-bkk-win-x86
+          path: build/app/CalibrationTransfer.exe
+          if-no-files-found: error
