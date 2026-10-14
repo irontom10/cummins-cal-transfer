@@ -1382,7 +1382,7 @@ int clip_cal_send_ccal(const char *filename,
     /*
      * Send the one validated short region first via 0x4B, including the
      * experimental 0x02000000 / 16-byte BKK case. The latter is structurally
-     * accepted only on this experimental branch, not live-flash validated.
+     * accepted by an experimental compatibility exception, not live-flash validated.
      * Metadata-free three-region images have no 0x4B command.
      */
     if (special_index < image.count) {
