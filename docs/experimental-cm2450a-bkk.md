@@ -57,3 +57,35 @@ build/tests/clip_cal_protocol_test
 correct ordering, or recovery after interrupted programming. The test
 transport only supplies mocked acknowledgements. Successful structural
 preflight and mock writes do not make a live flash safe.
+
+## Experimental already-unlocked response (2026-10-14)
+
+`caltoollog.6.jlog` captured these two application-level transactions:
+
+```text
+12 16 00 18 00  ->  01 16 FF FC   (attempted unlock)
+12 17 00 18 01  ->  01 17 FF FC   (attempted rollback/re-lock)
+```
+
+Neither is the proven successful `01 <seq> FF FF` acknowledgement.
+There are **no raw loader-entry requests or calibration writes** in this capture.
+The same `FF FC` reply appears on a requested lock, so the exact semantic
+meaning of this status is not independently proven.
+
+On this branch only, for a requested **`0x0018` unlock (`value=0`)**,
+an exact matching `01 <seq> FF FC` reply is treated provisionally as
+"possibly already unlocked"; the upload coordinator logs that fact and
+continues to the ordinary upload preflight/loader transition. It does **not**
+treat FF FC as proof that the ECM is unlocked.
+
+A requested **re-lock (`value=1`)** still requires `01 <seq> FF FF`.
+Unexpected replies, wrong sequence, short messages, unrelated negative
+responses and transport errors still abort. An error before loader entry
+does not send an automatic re-lock when the initial response indicated an
+already-unlocked condition (this preserves the initial state, as far as
+the tool can tell). Loader failure and post-upload recovery retain their
+existing confirmation requirements.
+
+**Live boundary:** a parser accepting FF FC is not proof that the CM2450A
+permits programming. Do not claim success without the raw loader handshake,
+a complete transfer, application recovery, and a confirmed re-lock.
