@@ -225,7 +225,7 @@ ECH/ECHO readback support is validated against the supplied raw Proprietary-A tr
 
 Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
 
-See [docs/upload-validation.md](docs/upload-validation.md) for upload validation details and [docs/memory-descriptor-validation.md](docs/memory-descriptor-validation.md) for the measured CLIP memory-descriptor layout and INCAL corpus results.
+See [docs/upload-validation.md](docs/upload-validation.md) for upload validation details and [docs/memory-descriptor-validation.md](docs/memory-descriptor-validation.md) for the measured CLIP memory-descriptor layout and INCAL corpus results. The [CM2450A/BKK compatibility exceptions](docs/experimental-cm2450a-bkk.md) explain the experimental high-address short-region handling and the negative `03 <seq> FF FC` unlock response, including why neither is yet live-flash validated.
 
 ## Releases
 

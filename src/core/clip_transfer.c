@@ -53,6 +53,8 @@
 
 /* Internal non-error result from the CLIP open probe. */
 #define PULL_DETECTED_ELITE_II            1
+/* Experimental non-error result; only from the 0x0018 unlock request. */
+#define PULL_CAL_ALREADY_UNLOCKED         2
 
 /*
  * ENI / ELITE II protocol values recovered from the supplied CM550/CM554
@@ -1616,6 +1618,14 @@ cal_enter_mode_value(struct pull_ctx *ctx,
         return PULL_ERR_CAL;
     }
 
+    /*
+     * Normally clip_exchange rejects negative (03) application services.
+     * For an UNLOCK request alone, return the negative reply to the
+     * specialized parser. It accepts ONLY 03 <seq> FF FC as an experimental
+     * continuation. The negative-tolerance flag is reset on every path.
+     */
+    if (mode == CLIP_MODE_CAL_LOCK && value == CLIP_CAL_UNLOCKED)
+        ctx->tolerate_negative = 1;
     rc = cal_exchange_sequence(ctx,
                                request,
                                sizeof(request),
@@ -1624,18 +1634,32 @@ cal_enter_mode_value(struct pull_ctx *ctx,
                                sizeof(reply),
                                &reply_len,
                                CLIP_TIMEOUT_MS);
+    ctx->tolerate_negative = 0;
     *sequence = clip_cal_next_sequence(seq);
     if (rc != PULL_OK)
         return rc;
 
-    rc = clip_cal_parse_reply(reply, reply_len, seq, &data, &data_len);
+    /*
+     * Do not conflate an application reply with a successful lock change.
+     * An exact negative 03 <seq> FF FC response is tolerated on a 0x0018
+     * UNLOCK request only. Re-lock still rejects FF FC (caltoollog.7).
+     * Loader entry (0x0017) keeps its separate generic reply parser.
+     */
+    if (mode == CLIP_MODE_CAL_LOCK && value == CLIP_CAL_UNLOCKED) {
+        rc = clip_cal_parse_unlock_ack(reply, reply_len, seq);
+        if (rc == CLIP_CAL_ALREADY_UNLOCKED)
+            return PULL_CAL_ALREADY_UNLOCKED;
+    } else if (mode == CLIP_MODE_CAL_LOCK && value == CLIP_CAL_LOCKED) {
+        rc = clip_cal_parse_lock_ack(reply, reply_len, seq);
+    } else {
+        rc = clip_cal_parse_reply(reply, reply_len, seq, &data, &data_len);
+    }
     if (rc != CLIP_CAL_OK) {
-        set_last_error_code("Invalid CLIP mode reply", (long)rc);
+        set_last_error_code("Invalid/unsuccessful CLIP mode acknowledgement",
+                            (long)rc);
         return PULL_ERR_CAL;
     }
 
-    (void)data;
-    (void)data_len;
     return PULL_OK;
 }
 
@@ -3401,6 +3425,7 @@ rp1210_upload_ccal(const char *api_name,
     int loader_mode;
     int loader_requested;
     int unlock_attempted;
+    int already_unlocked;
     int lock_confirmed;
 
     memset(&ctx, 0, sizeof(ctx));
@@ -3447,6 +3472,7 @@ rp1210_upload_ccal(const char *api_name,
     loader_mode = 0;
     loader_requested = 0;
     unlock_attempted = 0;
+    already_unlocked = 0;
     lock_confirmed = 0;
 
     report_progress(&ctx, 2, "CCAL fully validated. Opening RP1210/J1939 transport...");
@@ -3518,13 +3544,26 @@ rp1210_upload_ccal(const char *api_name,
     unlock_attempted = 1;
     rc = cal_enter_mode_value(&ctx, &sequence,
                               CLIP_MODE_CAL_LOCK, CLIP_CAL_UNLOCKED);
-    if (rc != PULL_OK) {
+    if (rc == PULL_CAL_ALREADY_UNLOCKED) {
+        /*
+         * 03 <seq> FF FC is the exact BKK NEGATIVE reply observed after
+         * unlock. Treat it as a provisional already-unlocked condition on
+         * this experimental compatibility path only, not as proof of ECM state.
+         * The following loader transition must still pass its own checks.
+         */
+        already_unlocked = 1;
+        rc = PULL_OK;
+        clear_last_error();
+        report_progress(&ctx, 18,
+            "Experimental: unlock returned FF FC (possibly already unlocked); attempting loader preflight...");
+    } else if (rc != PULL_OK) {
         set_last_error_text(
             "Calibration unlock not acknowledged; programming not started.");
         goto done;
+    } else {
+        report_progress(&ctx, 18,
+            "Unlock acknowledged (FF FF); entering calibration loader...");
     }
-
-    report_progress(&ctx, 18, "Unlock acknowledged; entering calibration loader...");
     rc = cal_prepare_programming(&ctx, &sequence, &loader_requested);
     if (rc != PULL_OK)
         goto done;
@@ -3612,7 +3651,7 @@ rp1210_upload_ccal(const char *api_name,
             restored = relock_after_loader_failure(
                 &ctx, api_name, device_id, baud,
                 (clip_u8)tool_sa, (clip_u8)ecm_sa);
-        } else if (clip_open) {
+        } else if (clip_open && !already_unlocked) {
             report_progress(&ctx, 96,
                 "Upload aborted before loader; restoring calibration lock...");
             restored = cal_enter_mode_value(
@@ -3622,6 +3661,11 @@ rp1210_upload_ccal(const char *api_name,
 
         if (restored)
             sprintf(summary, "%.345s Calibration re-lock acknowledged.", original);
+        else if (already_unlocked && !loader_requested && !loader_mode)
+            sprintf(summary,
+                "%.260s FF FC was treated as possibly already unlocked; "
+                "no re-lock was attempted before loader entry. "
+                "Original lock state remains unverified.", original);
         else
             sprintf(summary,
                 "%.300s WARNING: re-lock NOT confirmed; ECM may remain unlocked.",
