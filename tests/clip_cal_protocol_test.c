@@ -68,16 +68,16 @@ test_calibration_lock_modes(void)
     }
 }
 
-/* caltoollog.6.jlog (2026-10-14):
- *   12 16 00 18 00 -> 01 16 FF FC (unlock)
- *   12 17 00 18 01 -> 01 17 FF FC (re-lock)
- * Interpret FF FC on unlock as provisional already-unlocked ONLY here.
+/* Exact negative application service from caltoollog.7.jlog:
+ *   12 16 00 18 00 -> 03 16 FF FC (unlock)
+ *   12 17 00 18 01 -> 03 17 FF FC (re-lock)
+ * Only unlock may provisionally continue; never interpret it as a positive ACK.
  */
 static void
 test_experimental_already_unlocked_reply(void)
 {
-    clip_u8 unlock_reply[4] = {0x01U, 0x16U, 0xffU, 0xfcU};
-    clip_u8 lock_reply[4]   = {0x01U, 0x17U, 0xffU, 0xfcU};
+    clip_u8 unlock_reply[4] = {0x03U, 0x16U, 0xffU, 0xfcU};
+    clip_u8 lock_reply[4]   = {0x03U, 0x17U, 0xffU, 0xfcU};
     clip_u8 unlock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
     clip_u8 lock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
 
@@ -92,24 +92,32 @@ test_experimental_already_unlocked_reply(void)
                                       0x16U) == CLIP_CAL_ALREADY_UNLOCKED);
     assert(clip_cal_parse_lock_ack(unlock_reply, sizeof(unlock_reply),
                                     0x16U) == CLIP_CAL_ERR_FORMAT);
-    /* The re-lock in the capture was NOT acknowledged: no false success. */
+    /* FF FC re-lock is NOT acknowledged, irrespective of service. */
     assert(clip_cal_parse_lock_ack(lock_reply, sizeof(lock_reply),
                                     0x17U) == CLIP_CAL_ERR_FORMAT);
     assert(clip_cal_parse_unlock_ack(unlock_reply, sizeof(unlock_reply),
                                       0x17U) == CLIP_CAL_ERR_SEQUENCE);
 
+    /* A positive 01 FF FF is the ONLY confirmed unlock acknowledgement. */
+    unlock_reply[0] = 0x01U;
     unlock_reply[3] = 0xffU;
     assert(clip_cal_parse_unlock_ack(unlock_reply, sizeof(unlock_reply),
                                       0x16U) == CLIP_CAL_OK);
+
+    /* No false success for other combinations of service/status bytes. */
+    unlock_reply[0] = 0x03U;
+    assert(clip_cal_parse_unlock_ack(unlock_reply, sizeof(unlock_reply),
+                                      0x16U) == CLIP_CAL_ERR_FORMAT);
     unlock_reply[3] = 0xfbU;
     assert(clip_cal_parse_unlock_ack(unlock_reply, sizeof(unlock_reply),
                                       0x16U) == CLIP_CAL_ERR_FORMAT);
     unlock_reply[3] = 0xfcU;
-    assert(clip_cal_parse_unlock_ack(unlock_reply, 3U, 0x16U)
-           == CLIP_CAL_ERR_FORMAT);
-    unlock_reply[0] = 0x03U;
+    unlock_reply[0] = 0x01U;
     assert(clip_cal_parse_unlock_ack(unlock_reply, sizeof(unlock_reply),
                                       0x16U) == CLIP_CAL_ERR_FORMAT);
+    unlock_reply[0] = 0x03U;
+    assert(clip_cal_parse_unlock_ack(unlock_reply, 3U, 0x16U)
+           == CLIP_CAL_ERR_FORMAT);
 }
 
 static void
