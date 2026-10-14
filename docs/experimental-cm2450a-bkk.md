@@ -1,6 +1,6 @@
-# Experimental CM2450A/BKK high-address short region
+# CM2450A/BKK compatibility exceptions (experimental, not live-validated)
 
-**Experimental branch only. Do not merge to master as a proven live upload.**
+**Status:** Included in the uploader as experimental compatibility handling. These changes were originally developed on `experimental/cm2450a-bkk-high-metadata`, then merged to `master` with the limitations documented here. **This is not evidence of a successful or safe live flash.**
 
 ## Observed file layout
 
@@ -20,7 +20,7 @@ No calibration contents are checked into this repository.
 ## Scope of the change
 
 `src/core/clip_cal.c` continues to accept the legacy `0x00A00000`
-short region. On this branch **only**, it additionally recognizes a terminal
+short region. The uploader additionally recognizes a terminal
 `0x02000000` short region with **exactly 16 data bytes** in a **four-region**
 image. It reuses the existing `0x4B` command that carries a 32-bit address,
 with the 16-byte payload plus a two-byte CRC-16/KERMIT suffix.
@@ -73,7 +73,7 @@ The actual J1939 CLIP application bytes in `caltoollog.7.jlog` are:
 
 The generic `clip_exchange()` handler normally rejects negative service
 `03`, returning `PULL_ERR_PROTOCOL` (`-106`) before a specialized lock
-parser can inspect the payload. On this experimental branch, only when
+parser can inspect the payload. In the experimental compatibility path, only when
 issuing `12 <seq> 00 18 00` (calibration **unlock**), the caller briefly
 enables negative-response delivery, restoring normal behavior immediately
 after the transaction. The specialized `clip_cal_parse_unlock_ack()` then:
@@ -96,3 +96,34 @@ Post-loader recovery and re-lock confirmation requirements are unchanged.
 **Not established:** exact negative-status semantics, live BKK loader-entry
 acceptance, the `0x4B` high-address write order, and successful recovery.
 A test passing and a recognized negative response do not prove safe flashing.
+
+## Why this change was made
+
+A CRC-valid CM2450A/BKK calibration with three 24-bit bulk ranges and one
+16-byte high-address range at `0x02000000` failed the old preflight. Its fourth
+range was neither `0x00A00000` nor representable by the 24-bit `0x4D` bulk
+writer, so the validator reported an address/length error despite valid Intel
+HEX records. This change recognizes **that exact layout only** and uses the
+already-existing 32-bit-address `0x4B` short-region writer.
+
+A subsequent bench attempt returned native `-106` on the calibration-unlock
+operation. `caltoollog.7.jlog` showed the actual reply to be negative service
+`03 <seq> FF FC`, whereas the earlier experimental handler had expected a
+positive service `01`. The generic transport was discarding this negative
+reply before the special handler could classify it. The new unlock-only
+handling allows the normal loader preflight to be attempted without claiming
+that `FF FC` establishes an unlocked state.
+
+The change is deliberately narrow: no global tolerance for negative CLIP
+replies, no relaxation of bulk address limits or file CRC checks, and no
+positive re-lock acknowledgement unless the ECM replies `01 <seq> FF FF`.
+
+## Verification and remaining unknowns
+
+Regression tests use small **synthetic** CCAL files and mocked ACKs; they
+check the 4-region layout, `0x4B` address/length framing, `0x4D` bulk start
+addresses, invalid-layout rejections, and strict parsing of real response
+shapes. CI validates C89 builds and tests. There is no confirmed live
+CM2450A/BKK successful upload, power-loss recovery, or verified loader
+transition after `03 <seq> FF FC`. Do not interpret a CI pass as proof of
+live compatibility.
