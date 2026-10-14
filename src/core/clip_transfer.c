@@ -1618,6 +1618,14 @@ cal_enter_mode_value(struct pull_ctx *ctx,
         return PULL_ERR_CAL;
     }
 
+    /*
+     * Normally clip_exchange rejects negative (03) application services.
+     * For an UNLOCK request alone, return the negative reply to the
+     * specialized parser. It accepts ONLY 03 <seq> FF FC as an experimental
+     * continuation. The negative-tolerance flag is reset on every path.
+     */
+    if (mode == CLIP_MODE_CAL_LOCK && value == CLIP_CAL_UNLOCKED)
+        ctx->tolerate_negative = 1;
     rc = cal_exchange_sequence(ctx,
                                request,
                                sizeof(request),
@@ -1626,14 +1634,15 @@ cal_enter_mode_value(struct pull_ctx *ctx,
                                sizeof(reply),
                                &reply_len,
                                CLIP_TIMEOUT_MS);
+    ctx->tolerate_negative = 0;
     *sequence = clip_cal_next_sequence(seq);
     if (rc != PULL_OK)
         return rc;
 
     /*
      * Do not conflate an application reply with a successful lock change.
-     * An exact FF FC response is only tolerated on a 0x0018 UNLOCK request;
-     * FF FC during re-lock remains an error (as observed in caltoollog.6).
+     * An exact negative 03 <seq> FF FC response is tolerated on a 0x0018
+     * UNLOCK request only. Re-lock still rejects FF FC (caltoollog.7).
      * Loader entry (0x0017) keeps its separate generic reply parser.
      */
     if (mode == CLIP_MODE_CAL_LOCK && value == CLIP_CAL_UNLOCKED) {
@@ -3537,9 +3546,9 @@ rp1210_upload_ccal(const char *api_name,
                               CLIP_MODE_CAL_LOCK, CLIP_CAL_UNLOCKED);
     if (rc == PULL_CAL_ALREADY_UNLOCKED) {
         /*
-         * 01 <seq> FF FC is the exact BKK reply observed after an unlock
-         * request. Treat it as a provisional already-unlocked condition on
-         * this experimental branch only, not as proof of ECU state.
+         * 03 <seq> FF FC is the exact BKK NEGATIVE reply observed after
+         * unlock. Treat it as a provisional already-unlocked condition on
+         * this experimental branch only, not as proof of ECM state.
          * The following loader transition must still pass its own checks.
          */
         already_unlocked = 1;
