@@ -347,6 +347,50 @@ write_three_region_fixture(const char *path)
     assert(ccal_set_cal_file_crc(path) != 0);
 }
 
+/*
+ * Synthetic four-range CM2450A/BKK file with a 16-byte 0x02000000 tail.
+ * No calibration contents from the real captured CCAL are checked in.
+ */
+static void
+write_experimental_bkk_fixture(const char *path,
+                               unsigned int short_length,
+                               unsigned int short_base,
+                               int include_middle_bulk)
+{
+    FILE *fp;
+
+    fp = fopen(path, "wb");
+    assert(fp != NULL);
+    assert(fputs("0000\n", fp) >= 0);
+    assert(fputs(":020000040000FA\n", fp) >= 0);
+    assert(fputs(":01108000343B\n", fp) >= 0);
+    assert(fputs(":020000040001F9\n", fp) >= 0);
+    if (include_middle_bulk)
+        assert(fputs(":011000005699\n", fp) >= 0);
+    assert(fputs(":02000004008476\n", fp) >= 0);
+    assert(fputs(":010000007887\n", fp) >= 0);
+
+    if (short_base == 0x0200U)
+        assert(fputs(":020000040200F8\n", fp) >= 0);
+    else {
+        assert(short_base == 0x0300U);
+        assert(fputs(":020000040300F7\n", fp) >= 0);
+    }
+
+    if (short_length == 16U)
+        assert(fputs(":10000000000102030405060708090A0B0C0D0E0F78\n", fp) >= 0);
+    else if (short_length == 15U)
+        assert(fputs(":0F000000000102030405060708090A0B0C0D0E88\n", fp) >= 0);
+    else {
+        assert(short_length == 17U);
+        assert(fputs(":11000000000102030405060708090A0B0C0D0E0F1067\n", fp) >= 0);
+    }
+
+    assert(fputs(":00000001FF\n", fp) >= 0);
+    assert(fclose(fp) == 0);
+    assert(ccal_set_cal_file_crc(path) != 0);
+}
+
 struct upload_trace {
     unsigned char last_request[5];
     unsigned int count;
@@ -357,6 +401,10 @@ struct upload_trace {
     unsigned int start_commands;
     unsigned int end_commands;
     unsigned long bulk_addresses[3];
+    unsigned long short_address;
+    unsigned int short_transfer_length;
+    unsigned int first_write_opcode;
+    unsigned char short_prefix[3];
 };
 
 static int
@@ -381,10 +429,22 @@ trace_send(void *user, const unsigned char *data, unsigned int length)
     } else if (data[0] == 0x44U && data[2] == 0x0BU) {
         ++trace->finish_values;
     } else if (data[0] == 0x4BU) {
+        if (length < 9U)
+            return -1;
+        if (trace->first_write_opcode == 0U)
+            trace->first_write_opcode = 0x4BU;
+        trace->short_address = ((unsigned long)data[1] << 24) |
+                               ((unsigned long)data[2] << 16) |
+                               ((unsigned long)data[3] << 8) |
+                               (unsigned long)data[4];
+        trace->short_transfer_length = (unsigned int)data[5];
+        memcpy(trace->short_prefix, data + 6, 3U);
         ++trace->short_writes;
     } else if (data[0] == 0x4DU) {
         if (length < 9U)
             return -1;
+        if (trace->first_write_opcode == 0U)
+            trace->first_write_opcode = 0x4DU;
         address = ((unsigned long)data[2] << 16) |
                   ((unsigned long)data[3] << 8) |
                   (unsigned long)data[4];
@@ -474,6 +534,70 @@ test_three_region_upload_stream(void)
     remove(bad_path);
 }
 
+/*
+ * The BKK exception is intentionally narrower than the legacy 0x00A00000
+ * behavior. The 0x4B framing is mock-tested; a live CM2450A flash is NOT.
+ */
+static void
+test_experimental_cm2450a_bkk_region(void)
+{
+    const char *good = "build/tests/bkk-high-metadata.ccal";
+    const char *bad15 = "build/tests/bkk-short-15.ccal";
+    const char *bad17 = "build/tests/bkk-short-17.ccal";
+    const char *badaddr = "build/tests/bkk-wrong-address.ccal";
+    const char *badcount = "build/tests/bkk-missing-bulk.ccal";
+    struct upload_trace trace;
+    clip_cal_io io;
+    clip_cal_options options;
+
+    io.user = &trace;
+    io.send = trace_send;
+    io.recv = trace_recv;
+    clip_cal_options_init(&options);
+    options.timeout_ms = 1000UL;
+
+    write_experimental_bkk_fixture(good, 16U, 0x0200U, 1);
+    assert(clip_cal_validate_ccal(good) == CLIP_CAL_OK);
+    memset(&trace, 0, sizeof(trace));
+    assert(clip_cal_send_ccal(good, &io, &options) == CLIP_CAL_OK);
+    assert(trace.start_commands == 1U);
+    assert(trace.end_commands == 1U);
+    assert(trace.region_lengths == 4U);
+    assert(trace.short_writes == 1U);
+    assert(trace.bulk_writes == 3U);
+    assert(trace.finish_values == 1U);
+    assert(trace.count == 11U);
+    assert(trace.first_write_opcode == 0x4BU);
+    assert(trace.short_address == 0x02000000UL);
+    assert(trace.short_transfer_length == 18U); /* 16 payload + 2 CRC */
+    assert(trace.short_prefix[0] == 0x00U);
+    assert(trace.short_prefix[1] == 0x01U);
+    assert(trace.short_prefix[2] == 0x02U);
+    assert(trace.bulk_addresses[0] == 0x00001080UL);
+    assert(trace.bulk_addresses[1] == 0x00011000UL);
+    assert(trace.bulk_addresses[2] == 0x00840000UL);
+
+    write_experimental_bkk_fixture(bad15, 15U, 0x0200U, 1);
+    write_experimental_bkk_fixture(bad17, 17U, 0x0200U, 1);
+    write_experimental_bkk_fixture(badaddr, 16U, 0x0300U, 1);
+    write_experimental_bkk_fixture(badcount, 16U, 0x0200U, 0);
+    assert(clip_cal_validate_ccal(bad15) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_ccal(bad17) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_ccal(badaddr) == CLIP_CAL_ERR_RANGE);
+    assert(clip_cal_validate_ccal(badcount) == CLIP_CAL_ERR_LAYOUT);
+
+    memset(&trace, 0, sizeof(trace));
+    assert(clip_cal_send_ccal(bad15, &io, &options) ==
+           CLIP_CAL_ERR_LAYOUT);
+    assert(trace.count == 0U);
+
+    remove(good);
+    remove(bad15);
+    remove(bad17);
+    remove(badaddr);
+    remove(badcount);
+}
+
 static void
 test_full_ccal_preflight(void)
 {
@@ -503,6 +627,7 @@ main(void)
     test_sequence_and_crc();
     test_full_ccal_preflight();
     test_three_region_upload_stream();
+    test_experimental_cm2450a_bkk_region();
 
     puts("clip_cal protocol tests passed");
     return 0;
