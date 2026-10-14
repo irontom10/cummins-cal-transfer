@@ -508,6 +508,14 @@ clip_cal_total_size(const struct clip_cal_map *map)
 
 #define CLIP_CAL_LINE_MAX 2048
 #define CLIP_CAL_SHORT_ADDR 0x00A00000UL
+/*
+ * EXPERIMENTAL CM2450A/BKK format: a terminal 16-byte metadata range at
+ * 0x02000000. The raw-loader 0x4B sender already encodes 32-bit addresses,
+ * but the write sequence has NOT been confirmed against a live trace.
+ * Never widen the 24-bit bulk range checks to accommodate this address.
+ */
+#define CLIP_CAL_EXPERIMENTAL_SHORT_ADDR 0x02000000UL
+#define CLIP_CAL_EXPERIMENTAL_SHORT_LENGTH 16UL
 #define CLIP_CAL_RX_MAX 4096U
 #define CLIP_CAL_MAX_SKIPPED_RX 64U
 
@@ -847,12 +855,19 @@ static int clip_cal_validate_image(const clip_cal_image *image,
             return CLIP_CAL_ERR_LAYOUT;
         }
 
-        if (region->address == CLIP_CAL_SHORT_ADDR) {
+        if (region->address == CLIP_CAL_SHORT_ADDR ||
+            region->address == CLIP_CAL_EXPERIMENTAL_SHORT_ADDR) {
             if (found_special != 0U) {
                 return CLIP_CAL_ERR_LAYOUT;
             }
             if (region->length > 253UL) {
                 return CLIP_CAL_ERR_RANGE;
+            }
+            /* Only accept the observed four-region BKK layout here. */
+            if (region->address == CLIP_CAL_EXPERIMENTAL_SHORT_ADDR &&
+                (region->length != CLIP_CAL_EXPERIMENTAL_SHORT_LENGTH ||
+                 image->count != 4U || i != image->count - 1U)) {
+                return CLIP_CAL_ERR_LAYOUT;
             }
             found_special = 1U;
             if (special_index != NULL) {
@@ -1337,9 +1352,10 @@ int clip_cal_send_ccal(const char *filename,
     }
 
     /*
-     * In the captured four-range sequence the high-address metadata is sent
-     * first via 0x4B.  A three-range descriptor has no such bytes, so emit no
-     * 0x4B command and transfer each validated flash region via 0x4D.
+     * Send the one validated short region first via 0x4B, including the
+     * experimental 0x02000000 / 16-byte BKK case. The latter is structurally
+     * accepted only on this experimental branch, not live-flash validated.
+     * Metadata-free three-region images have no 0x4B command.
      */
     if (special_index < image.count) {
         rc = clip_cal_send_short_region(
