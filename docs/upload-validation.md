@@ -148,21 +148,48 @@ belong to the captured session and must **not** be sent as fixed constants.
 The upload coordinator now:
 
 1. Validates file and completes authenticated CLIP upload preflight.
-2. Sends `12 <seq> 00 18 00` to unlock; aborts before loader on missing ACK.
+2. Sends `12 <seq> 00 18 00` to unlock; accepts the confirmed positive
+   `01 <seq> FF FF`. A strictly scoped experimental exception for the exact
+   negative `03 <seq> FF FC` allows an attempted loader preflight with
+   **unverified** unlock state; other failures abort.
 3. Proceeds into the raw loader via `12 <seq> 00 17 00`.
 4. After a complete programming stream, waits for the ECM application to
    return, authenticates a **new** CLIP session, and sends
    `12 <seq> 00 18 01` to restore calibration lock.
 5. Requires an acknowledged re-lock **and** successful product-ID/status queries
    before reporting completed/verified programming.
-6. On pre-loader errors after attempted unlock, tries to restore lock in the
-   original CLIP session. On loader/post-loader errors, only attempts re-lock
-   after a **new** authenticated application session becomes reachable.
+6. On pre-loader errors after a confirmed unlock, tries to restore lock in the
+   original CLIP session. If the unlock only produced `03 <seq> FF FC`, it
+   preserves the unknown initial lock state instead of forcing re-lock before
+   loader entry. On loader/post-loader errors, only attempts re-lock after a
+   **new** authenticated application session becomes reachable.
 
 Re-lock is **not guaranteed** if the ECM loses power, stays in the loader, or
 becomes unresponsive. The application reports re-lock as unconfirmed rather
 than silently claiming the controller is locked.
 
-The log establishes the lock-mode request/response shapes. It does **not**
-prove successful re-lock immediately after a full flash; that remains a live
-validation boundary alongside the three-region loader sequence.
+The log establishes the successful lock-mode request/response shapes. It does
+**not** prove successful re-lock immediately after a full flash; that remains
+a live validation boundary alongside the three-region loader sequence.
+
+## CM2450A/BKK four-region CCAL and negative unlock reply (experimental)
+
+A CRC-valid BKK file includes three normal 24-bit-addressable flash regions
+and a fourth **16-byte** range at `0x02000000`. Formerly, only the special
+`0x00A00000` metadata address was recognized, so the new address failed
+preflight with `CLIP_CAL_ERR_RANGE`. The compatibility exception now accepts
+only a **four-region layout with a terminal, exactly 16-byte range at
+`0x02000000`**. It uses `0x4B` (32-bit address) for this short region, without
+relaxing normal `0x4D` 24-bit address/length checks or CRC requirements.
+
+The 2026-10-14 bench log recorded `12 16 00 18 00` -> `03 16 FF FC`.
+This is a **negative** CLIP application service, not a success ACK and not a
+proven "already unlocked" indicator. Only for the specific unlock request,
+the tool permits this exact response to proceed into the normal loader
+preflight; an ordinary negative response or a failed loader transition
+still aborts. Re-lock **still requires** the positive `01 <seq> FF FF`.
+
+These acceptance rules and mock-generated transfer bytes are regression-tested
+with synthetic fixtures. **A live BKK write trace and confirmed successful
+program/recovery are not yet established.** Read the full rationale and
+known limitations in [CM2450A/BKK compatibility exceptions](experimental-cm2450a-bkk.md).
