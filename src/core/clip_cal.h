@@ -31,9 +31,9 @@
 #include "clip_crypto.h"
 
 #define CLIP_CAL_OK                 CLIP_OK
-/* Experimental: 01 <seq> FF FC on a 0x0018 unlock request.
- * This is observed, but its "already unlocked" meaning is provisional.
- * NEVER use it as a successful lock or loader-transition acknowledgement. */
+/* Experimental: negative service 03 <seq> FF FC on 0x0018 unlock.
+ * Its "already unlocked" meaning is provisional. Never accept as a
+ * successful lock or loader-transition acknowledgement. */
 #define CLIP_CAL_ALREADY_UNLOCKED   1
 #define CLIP_CAL_ERR_ARGUMENT       CLIP_ERR_ARGUMENT
 #define CLIP_CAL_ERR_BUFFER         CLIP_ERR_BUFFER
@@ -183,8 +183,8 @@ clip_cal_parse_lock_ack(const clip_u8 *pdu,
                         size_t pdu_len,
                         clip_u8 expected_sequence);
 
-/* Experimental unlock-only parser: strict FF FF success or exact FF FC
- * conditional continuation. Reject all other status bytes and sequences. */
+/* Experimental unlock-only parser: 01 <seq> FF FF means success;
+ * 03 <seq> FF FC permits conditional continuation. Reject everything else. */
 int
 clip_cal_parse_unlock_ack(const clip_u8 *pdu,
                           size_t pdu_len,
