@@ -161,28 +161,28 @@ clip_cal_parse_lock_ack(const clip_u8 *pdu,
 
 /*
  * Experimental unlock-only interpretation of the 2026-10-14 BKK trace:
- *   12 16 00 18 00 -> 01 16 FF FC
- * FF FC is NOT proven to mean "already unlocked"; allow an attempted
- * loader transition with normal downstream checks, not a confirmed unlock.
+ *   12 16 00 18 00 -> 03 16 FF FC  (negative service)
+ *
+ * 03/FF FC is NOT a positive acknowledgement and is NOT proven to mean
+ * "already unlocked". It may only permit a guarded attempt to enter the
+ * loader. Never accept other negative replies or use this for re-lock.
  */
 int
 clip_cal_parse_unlock_ack(const clip_u8 *pdu,
                           size_t pdu_len,
                           clip_u8 expected_sequence)
 {
-    const clip_u8 *data;
-    size_t data_len;
-    int rc;
-
-    rc = clip_cal_parse_reply(pdu, pdu_len, expected_sequence,
-                              &data, &data_len);
-    if (rc != CLIP_CAL_OK)
-        return rc;
-    if (data_len != 2U || data[0] != 0xffU)
+    if (pdu == NULL)
+        return CLIP_CAL_ERR_ARGUMENT;
+    if (pdu_len != 4U)
         return CLIP_CAL_ERR_FORMAT;
-    if (data[1] == 0xffU)
+    if (pdu[1] != expected_sequence)
+        return CLIP_CAL_ERR_SEQUENCE;
+    if (pdu[2] != 0xffU)
+        return CLIP_CAL_ERR_FORMAT;
+    if (pdu[0] == CLIP_CAL_SERVICE_REPLY && pdu[3] == 0xffU)
         return CLIP_CAL_OK;
-    if (data[1] == 0xfcU)
+    if (pdu[0] == 0x03U && pdu[3] == 0xfcU)
         return CLIP_CAL_ALREADY_UNLOCKED;
     return CLIP_CAL_ERR_FORMAT;
 }
