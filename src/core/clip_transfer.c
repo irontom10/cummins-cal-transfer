@@ -3548,7 +3548,7 @@ rp1210_upload_ccal(const char *api_name,
         /*
          * 03 <seq> FF FC is the exact BKK NEGATIVE reply observed after
          * unlock. Treat it as a provisional already-unlocked condition on
-         * this experimental branch only, not as proof of ECM state.
+         * this experimental compatibility path only, not as proof of ECM state.
          * The following loader transition must still pass its own checks.
          */
         already_unlocked = 1;
