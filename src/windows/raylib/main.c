@@ -485,9 +485,9 @@ prepare_transfer(int upload)
     save_config();
     if (upload) {
         open_message(MODAL_CONFIRM, "Confirm ECM programming",
-                     "This will WRITE to the ECM. Confirm that the CCAL is compatible, "
+                     "This will WRITE to the ECM. Confirm that the XCAL is compatible, "
                      "power is stable and the RP1210 connection will not be interrupted. "
-                     "The native uploader checks CCAL CRC before opening the adapter.");
+                     "The native uploader checks XCAL CRC before opening the adapter.");
     } else
         start_worker();
 }
@@ -912,13 +912,13 @@ draw_screen(void)
              paint(0xEAF2FFFF));
     allow_actions = interactive && g.available_devices > 0;
     if (button(rect(59, 540, 426, 46),
-               g_custom_font ? "\xEF\x80\x99  Pull ECM CAL > CCAL" :
-                               "Pull ECM CAL  >  CCAL",
+               g_custom_font ? "\xEF\x80\x99  Pull ECM CAL > XCAL" :
+                               "Pull ECM CAL  >  XCAL",
                allow_actions, 1))
         prepare_transfer(0);
     if (button(rect(507, 540, 426, 46),
-               g_custom_font ? "\xEF\x82\x93  Upload CCAL > ECM" :
-                               "Upload CCAL  >  ECM",
+               g_custom_font ? "\xEF\x82\x93  Upload XCAL > ECM" :
+                               "Upload XCAL  >  ECM",
                allow_actions, 0))
         prepare_transfer(1);
 

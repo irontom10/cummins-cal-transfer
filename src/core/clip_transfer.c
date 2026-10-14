@@ -2398,7 +2398,7 @@ collect_auxiliary(struct pull_ctx *ctx,
 
     safe_copy(meta->leading_word, "0000", sizeof(meta->leading_word));
     report_progress(ctx, 91,
-                    "Auxiliary data complete; .ccal CRC will be finalized after write.");
+                    "Auxiliary data complete; .xcal CRC will be finalized after write.");
 
     return PULL_OK;
 }
@@ -2509,7 +2509,7 @@ write_elite_ccal(const char *path, const struct pull_image *image)
 
     fp = fopen(path, "wb");
     if (fp == NULL) {
-        set_last_error_text("Unable to create destination ENI .ccal file.");
+        set_last_error_text("Unable to create destination ENI .xcal file.");
         return PULL_ERR_FILE;
     }
 
@@ -2601,7 +2601,7 @@ write_elite_ccal(const char *path, const struct pull_image *image)
 
     if (!ok) {
         (void)remove(path);
-        set_last_error_text("Failed while writing destination ENI .ccal file.");
+        set_last_error_text("Failed while writing destination ENI .xcal file.");
         return PULL_ERR_FILE;
     }
 
@@ -2745,7 +2745,7 @@ write_ccal(const char *path,
 
     fp = fopen(path, "wb");
     if (fp == NULL) {
-        set_last_error_text("Unable to create destination .ccal file.");
+        set_last_error_text("Unable to create destination .xcal file.");
         return PULL_ERR_FILE;
     }
 
@@ -2801,7 +2801,7 @@ write_ccal(const char *path,
 
     if (!ok) {
         (void)remove(path);
-        set_last_error_text("Failed while writing destination .ccal file.");
+        set_last_error_text("Failed while writing destination .xcal file.");
         return PULL_ERR_FILE;
     }
 
@@ -3305,7 +3305,7 @@ rp1210_pull_ccal(const char *api_name,
             goto done;
         elite_open = 0;
 
-        report_progress(&ctx, 95, "Writing legacy ENI .ccal file...");
+        report_progress(&ctx, 95, "Writing legacy ENI .xcal file...");
         rc = write_elite_ccal(out_path, &image);
         if (rc != PULL_OK)
             goto done;
@@ -3375,7 +3375,7 @@ rp1210_pull_ccal(const char *api_name,
     if (rc != PULL_OK)
         goto done;
 
-    report_progress(&ctx, 94, "Writing .ccal file...");
+    report_progress(&ctx, 94, "Writing .xcal file...");
     rc = write_ccal(out_path, &meta, &image);
     if (rc != PULL_OK)
         goto done;
@@ -3434,7 +3434,7 @@ rp1210_upload_ccal(const char *api_name,
     if (api_name == NULL || api_name[0] == '\0' ||
         ccal_path == NULL || ccal_path[0] == '\0' ||
         device_id < 0) {
-        set_last_error_text("Invalid RP1210 API, device, or CCAL path.");
+        set_last_error_text("Invalid RP1210 API, device, or XCAL path.");
         return PULL_ERR_ARGUMENT;
     }
 
@@ -3444,14 +3444,14 @@ rp1210_upload_ccal(const char *api_name,
      * therefore cannot put an ECM into loader mode.
      */
     if (progress != NULL)
-        progress(0, "Validating CCAL CRC, Intel-HEX structure, and loader layout...");
+        progress(0, "Validating XCAL CRC, Intel-HEX structure, and loader layout...");
 
     cal_rc = clip_cal_validate_ccal(ccal_path);
     if (cal_rc != CLIP_CAL_OK) {
         char msg[512];
 
         sprintf(msg,
-                "CCAL preflight validation failed: %s. No programming traffic was sent.",
+                "XCAL preflight validation failed: %s. No programming traffic was sent.",
                 clip_cal_strerror(cal_rc));
         set_last_error_text(msg);
 
@@ -3475,7 +3475,7 @@ rp1210_upload_ccal(const char *api_name,
     already_unlocked = 0;
     lock_confirmed = 0;
 
-    report_progress(&ctx, 2, "CCAL fully validated. Opening RP1210/J1939 transport...");
+    report_progress(&ctx, 2, "XCAL fully validated. Opening RP1210/J1939 transport...");
     rc = open_j1939_transport(&ctx,
                                api_name,
                                device_id,
@@ -3610,7 +3610,7 @@ rp1210_upload_ccal(const char *api_name,
     options.progress = raw_cal_progress;
     options.progress_user = &ctx;
 
-    report_progress(&ctx, 35, "Programming verified CCAL...");
+    report_progress(&ctx, 35, "Programming verified XCAL...");
     rc = clip_cal_send_ccal(ccal_path, &io, &options);
     if (rc != CLIP_CAL_OK) {
         char msg[512];

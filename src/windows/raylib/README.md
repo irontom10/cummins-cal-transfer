@@ -45,8 +45,8 @@ Only the 95 printable ASCII characters and three UI icon glyphs are loaded from 
 | Adapter/device selection, automatic device | Scrollable selectors using the existing scanner |
 | J1939 and baud (Auto/125k/250k/500k/1M) | Identical native arguments |
 | Tool SA / ECM SA | Validated hexadecimal byte fields |
-| Read/download ECM to CCAL | rp1210_pull_ccal and Windows Save As dialog |
-| Upload CCAL to ECM | rp1210_upload_ccal, Windows Open dialog and explicit confirmation |
+| Read/download ECM to XCAL | rp1210_pull_ccal and Windows Save As dialog |
+| Upload XCAL to ECM | rp1210_upload_ccal, Windows Open dialog and explicit confirmation |
 | CRC guard / protocol restrictions | Core controls these unchanged |
 | Transfer progress/errors | Separate native worker and synchronized progress snapshot |
 | Configuration | Shared config_store.c, same config.toml |

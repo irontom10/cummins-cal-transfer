@@ -3,7 +3,7 @@
  *
  * C89 implementation of the CLIP calibration-upload helpers declared in
  * clip_cal.h.  The packet layouts are derived from the supplied reference tool
- * recording and cross-checked against the generated .ccal Intel-HEX payload.
+ * recording and cross-checked against the generated .xcal Intel-HEX payload.
  */
 
 #include "clip_cal.h"
@@ -532,7 +532,7 @@ clip_cal_total_size(const struct clip_cal_map *map)
     return total;
 }
 
-/* ===================== CCAL PROGRAMMING SUPPORT ===================== */
+/* ===================== XCAL PROGRAMMING SUPPORT ===================== */
 
 #define CLIP_CAL_LINE_MAX 2048
 #define CLIP_CAL_SHORT_ADDR 0x00A00000UL
@@ -1432,9 +1432,9 @@ const char *clip_cal_strerror(int code)
     case CLIP_CAL_ERR_ARGUMENT:
         return "invalid argument";
     case CLIP_CAL_ERR_OPEN:
-        return "could not open CCAL file";
+        return "could not open XCAL file";
     case CLIP_CAL_ERR_FORMAT:
-        return "invalid or unsupported CCAL/Intel HEX format";
+        return "invalid or unsupported XCAL/Intel HEX format";
     case CLIP_CAL_ERR_HEX_CHECKSUM:
         return "Intel HEX checksum mismatch";
     case CLIP_CAL_ERR_ORDER:
@@ -1442,7 +1442,7 @@ const char *clip_cal_strerror(int code)
     case CLIP_CAL_ERR_MEMORY:
         return "out of memory";
     case CLIP_CAL_ERR_LAYOUT:
-        return "required CCAL region layout was not found";
+        return "required XCAL region layout was not found";
     case CLIP_CAL_ERR_RANGE:
         return "address or length is outside the captured protocol range";
     case CLIP_CAL_ERR_TRANSPORT:
@@ -1452,7 +1452,7 @@ const char *clip_cal_strerror(int code)
     case CLIP_CAL_ERR_ACK:
         return "matching ECM completion response was not received";
     case CLIP_CAL_ERR_CRC:
-        return "CCAL file CRC verification failed";
+        return "XCAL file CRC verification failed";
     default:
         return "unknown clip_cal error";
     }

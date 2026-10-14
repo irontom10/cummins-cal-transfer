@@ -11,7 +11,7 @@ typedef void (RP1210_CALL *RP1210_PROGRESS_CALLBACK)(int percent,
                                                       const char *message);
 
 /*
- * Pull the ECM calibration over CLIP/J1939 and write a .ccal file.
+ * Pull the ECM calibration over CLIP/J1939 and write a .xcal file (unchanged native calibration format).
  *
  * api        RP1210 API implementation name, e.g. "NULN3R32".
  * device_id  RP1210 device ID from rp1210_get().
@@ -19,7 +19,7 @@ typedef void (RP1210_CALL *RP1210_PROGRESS_CALLBACK)(int percent,
  *            Use 0 for RP1210 automatic bitrate detection (J1939:Baud=Auto).
  * tool_sa    J1939 source address used by the tool (normally 0xFA).
  * ecm_sa     ECM source/destination address (normally 0x00).
- * out_path   Destination .ccal path.
+ * out_path   Destination .xcal path.
  * progress   Optional callback. May be NULL.
  *
  * Returns 0 on success, negative on failure.  Call rp1210_get_last_error()
@@ -35,7 +35,7 @@ RP1210_EXPORT int RP1210_CALL rp1210_pull_ccal(
     RP1210_PROGRESS_CALLBACK progress
 );
 
-/* Verify and program a .ccal file into the ECM.  The native
+/* Verify and program a .xcal file into the ECM.  The native
  * implementation verifies the calibration file CRC before opening the adapter. */
 RP1210_EXPORT int RP1210_CALL rp1210_upload_ccal(
     const char *api,

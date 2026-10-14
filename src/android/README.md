@@ -89,12 +89,12 @@ The screen mirrors the Windows utility:
 - tool source address
 - ECM source address
 - Pull ECM CAL
-- Upload CCAL
+- Upload XCAL
 - progress and status
 
 Android additionally has Refresh Paired, Scan Bluetooth, and Pair controls. Discovery filters out ordinary speakers/headphones and only lists names that look like supported diagnostic adapters.
 
-Pull uses Android's document creator and Upload uses Android's document picker. The native C core always works on an app-private temporary file; the Java layer copies to/from the selected Android document URI.
+Pull defaults to an `.xcal` filename in Android's document creator. Upload uses Android's document picker and accepts `.xcal` and legacy `.ccal` files (the core validates contents, not filenames). The native C core always works on an app-private temporary file; the Java layer copies to/from the selected Android document URI.
 
 
 ## Configuration

@@ -157,7 +157,7 @@ public sealed class Rp1210Form : Form
         Controls.Add(pullButton);
 
         uploadButton = new Button();
-        uploadButton.Text = "Upload CCAL";
+        uploadButton.Text = "Upload XCAL";
         uploadButton.Left = 455;
         uploadButton.Top = 295;
         uploadButton.Width = 130;
@@ -518,10 +518,10 @@ public sealed class Rp1210Form : Form
 
         using (SaveFileDialog dialog = new SaveFileDialog())
         {
-            dialog.Filter = "Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
-            dialog.DefaultExt = "ccal";
+            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|Legacy CCAL (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.DefaultExt = "xcal";
             dialog.AddExtension = true;
-            dialog.FileName = "ecm-upload.ccal";
+            dialog.FileName = "ecm-upload.xcal";
 
             if (dialog.ShowDialog(this) != DialogResult.OK)
                 return;
@@ -665,7 +665,7 @@ public sealed class Rp1210Form : Form
 
         using (OpenFileDialog dialog = new OpenFileDialog())
         {
-            dialog.Filter = "Calibration (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|Legacy CCAL (*.ccal)|*.ccal|All files (*.*)|*.*";
             dialog.CheckFileExists = true;
             dialog.Multiselect = false;
 
@@ -678,7 +678,7 @@ public sealed class Rp1210Form : Form
         if (MessageBox.Show(
                 "Program this calibration into the ECM?\r\n\r\n" +
                 path +
-                "\r\n\r\nThe native uploader will verify the CCAL CRC " +
+                "\r\n\r\nThe native uploader will verify the calibration CRC " +
                 "before opening the RP1210 adapter. If CRC verification fails, " +
                 "no programming traffic is sent.",
                 "Confirm Calibration Upload",

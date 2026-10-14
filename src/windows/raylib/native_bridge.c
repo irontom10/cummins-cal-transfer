@@ -54,21 +54,21 @@ ct_native_choose_path(int upload, char *path, unsigned long cap, void *owner)
 {
     OPENFILENAMEA dialog;
     static const char filters[] =
-        "Calibration (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
+        "XCAL calibration (*.xcal)\0*.xcal\0Legacy CCAL (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
     memset(&dialog, 0, sizeof(dialog));
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = (HWND)owner;
     dialog.lpstrFile = path;
     dialog.nMaxFile = (DWORD)cap;
     dialog.lpstrFilter = filters;
-    dialog.lpstrDefExt = "ccal";
+    dialog.lpstrDefExt = "xcal";
     dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
     if (upload) {
         path[0] = '\0';
         dialog.Flags |= OFN_FILEMUSTEXIST;
         return GetOpenFileNameA(&dialog) != 0;
     }
-    safe_copy(path, "ecm-calibration.ccal", (size_t)cap);
+    safe_copy(path, "ecm-calibration.xcal", (size_t)cap);
     dialog.Flags |= OFN_OVERWRITEPROMPT;
     return GetSaveFileNameA(&dialog) != 0;
 }

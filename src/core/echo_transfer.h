@@ -42,7 +42,7 @@ typedef struct echo_io_tag {
 int echo_probe(const echo_io *io);
 
 /*
- * Read an ECH/ECHO calibration and write the legacy header + Intel-HEX .ccal
+ * Read an ECH/ECHO calibration and write the legacy header + Intel-HEX .xcal
  * format observed in the supplied validated readback trace.
  *
  * This module intentionally implements readback only.  It contains no

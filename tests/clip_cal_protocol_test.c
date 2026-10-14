@@ -533,9 +533,9 @@ trace_recv(void *user,
 static void
 test_three_region_upload_stream(void)
 {
-    const char *three_path = "build/tests/three-region.ccal";
+    const char *three_path = "build/tests/three-region.xcal";
     const char *legacy_path = "build/tests/short-region.ccal";
-    const char *bad_path = "build/tests/missing-region.ccal";
+    const char *bad_path = "build/tests/missing-region.xcal";
     struct upload_trace trace;
     clip_cal_io io;
     clip_cal_options options;
@@ -593,11 +593,11 @@ test_three_region_upload_stream(void)
 static void
 test_experimental_cm2450a_bkk_region(void)
 {
-    const char *good = "build/tests/bkk-high-metadata.ccal";
-    const char *bad15 = "build/tests/bkk-short-15.ccal";
-    const char *bad17 = "build/tests/bkk-short-17.ccal";
-    const char *badaddr = "build/tests/bkk-wrong-address.ccal";
-    const char *badcount = "build/tests/bkk-missing-bulk.ccal";
+    const char *good = "build/tests/bkk-high-metadata.xcal";
+    const char *bad15 = "build/tests/bkk-short-15.xcal";
+    const char *bad17 = "build/tests/bkk-short-17.xcal";
+    const char *badaddr = "build/tests/bkk-wrong-address.xcal";
+    const char *badcount = "build/tests/bkk-missing-bulk.xcal";
     struct upload_trace trace;
     clip_cal_io io;
     clip_cal_options options;
@@ -653,8 +653,8 @@ test_experimental_cm2450a_bkk_region(void)
 static void
 test_full_ccal_preflight(void)
 {
-    const char *valid_path = "build/tests/valid-preflight.ccal";
-    const char *bad_layout_path = "build/tests/bad-layout.ccal";
+    const char *valid_path = "build/tests/valid-preflight.xcal";
+    const char *bad_layout_path = "build/tests/bad-layout.xcal";
 
     write_ccal_fixture(valid_path, 1);
     write_ccal_fixture(bad_layout_path, 0);

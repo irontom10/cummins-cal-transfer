@@ -765,7 +765,7 @@ write_ccal(const char *path,
 
     fp = fopen(path, "wb");
     if (fp == NULL) {
-        set_error("Unable to create destination ECH/ECHO .ccal file.");
+        set_error("Unable to create destination ECH/ECHO .xcal file.");
         return ECHO_TRANSFER_ERR_FILE;
     }
 
@@ -837,7 +837,7 @@ write_ccal(const char *path,
 
     if (!ok) {
         (void)remove(path);
-        set_error("Failed while writing destination ECH/ECHO .ccal file.");
+        set_error("Failed while writing destination ECH/ECHO .xcal file.");
         return ECHO_TRANSFER_ERR_FILE;
     }
 
@@ -845,7 +845,7 @@ write_ccal(const char *path,
         !ccal_check_cal_file_crc(path) ||
         !ccal_check_header_file_crc(path) ||
         !ccal_check_file_crc(path)) {
-        set_error("ECH/ECHO .ccal CRC finalization failed.");
+        set_error("ECH/ECHO .xcal CRC finalization failed.");
         return ECHO_TRANSFER_ERR_CRC;
     }
 
@@ -923,7 +923,7 @@ echo_pull_ccal(const echo_io *io, const char *path)
         goto done;
     opened = 0;
 
-    progress(io, 95, "Writing ECH/ECHO .ccal file...");
+    progress(io, 95, "Writing ECH/ECHO .xcal file...");
     rc = write_ccal(path, &meta, &image);
     if (rc != ECHO_TRANSFER_OK)
         goto done;

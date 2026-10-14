@@ -479,7 +479,7 @@ choose_path(int upload, char *path, DWORD size)
 {
     OPENFILENAMEA dialog;
     static const char filter[] =
-        "Calibration (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
+        "XCAL calibration (*.xcal)\0*.xcal\0Legacy CCAL (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
 
     memset(&dialog, 0, sizeof(dialog));
     dialog.lStructSize = sizeof(dialog);
@@ -487,7 +487,7 @@ choose_path(int upload, char *path, DWORD size)
     dialog.lpstrFilter = filter;
     dialog.lpstrFile = path;
     dialog.nMaxFile = size;
-    dialog.lpstrDefExt = "ccal";
+    dialog.lpstrDefExt = "xcal";
     dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
     if (upload) {
         path[0] = '\0';
@@ -495,7 +495,7 @@ choose_path(int upload, char *path, DWORD size)
         return GetOpenFileNameA(&dialog) != 0;
     }
 
-    copy_text(path, "ecm-upload.ccal", size);
+    copy_text(path, "ecm-upload.xcal", size);
     dialog.Flags |= OFN_OVERWRITEPROMPT;
     return GetSaveFileNameA(&dialog) != 0;
 }
@@ -557,7 +557,7 @@ start_transfer(int upload)
         sprintf(confirm,
                 "Program this calibration into the ECM?\r\n\r\n"
                 "%.1023s\r\n\r\n"
-                "The native uploader validates the CCAL CRC before "
+                "The native uploader validates the calibration CRC before "
                 "opening the RP1210 adapter. Invalid files send no "
                 "programming traffic.",
                 request->path);
@@ -679,7 +679,7 @@ create_controls(void)
     g_ui.pull = make_control("BUTTON", "Pull ECM CAL",
                              BS_PUSHBUTTON | WS_TABSTOP,
                              0, ID_PULL, 310, 295, 130, 32);
-    g_ui.upload = make_control("BUTTON", "Upload CCAL",
+    g_ui.upload = make_control("BUTTON", "Upload XCAL",
                                BS_PUSHBUTTON | WS_TABSTOP,
                                0, ID_UPLOAD, 455, 295, 130, 32);
     g_ui.progress = make_control(PROGRESS_CLASSA, "",

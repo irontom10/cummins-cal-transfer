@@ -251,7 +251,7 @@ clip_cal_total_size(const struct clip_cal_map *map);
 
 
 /* -------------------------------------------------------------------------
- * Calibration programming / CCAL upload API.
+ * Calibration programming / XCAL upload API (legacy function names retained).
  *
  * These callbacks operate on complete/reassembled PGN 61184 payloads after
  * the ECM has been transitioned from CLIP into its raw calibration loader.
@@ -322,7 +322,7 @@ unsigned int clip_cal_crc16_kermit(const unsigned char *data,
 int clip_cal_verify_ccal_crc(const char *filename);
 
 /*
- * Fully validate a CCAL for the raw-loader programming path without sending
+ * Fully validate an XCAL for the raw-loader programming path without sending
  * any vehicle traffic.  This checks the file CRCs, Intel-HEX syntax/checksums,
  * record ordering, either the captured 0x00A00000 metadata layout or the
  * three-flash-region CLIP layout, and the address/length constraints used by
@@ -332,7 +332,7 @@ int clip_cal_verify_ccal_crc(const char *filename);
 int clip_cal_validate_ccal(const char *filename);
 
 /*
- * Program a parsed .ccal over the raw loader protocol observed in the
+ * Program a parsed .xcal over the raw loader protocol observed in the
  * reference tool upload capture:
  *
  *   02                    enter transfer phase

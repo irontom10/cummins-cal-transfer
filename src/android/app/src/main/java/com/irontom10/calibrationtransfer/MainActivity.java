@@ -346,7 +346,7 @@ public final class MainActivity extends Activity {
         transferButtons.setOrientation(LinearLayout.HORIZONTAL);
 
         pullButton = button("Pull ECM CAL");
-        uploadButton = button("Upload CCAL");
+        uploadButton = button("Upload XCAL");
 
         // The shorter transfer controls can share a row on normal phones,
         // but must also adapt to narrow screens and larger system fonts.
@@ -639,7 +639,7 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/octet-stream");
-        intent.putExtra(Intent.EXTRA_TITLE, "ecm-upload.ccal");
+        intent.putExtra(Intent.EXTRA_TITLE, "ecm-upload.xcal");
         startActivityForResult(intent, CREATE_PULL_FILE);
     }
 
@@ -676,7 +676,7 @@ public final class MainActivity extends Activity {
                     .setTitle("Confirm Calibration Upload")
                     .setMessage(
                             "Program this calibration into the ECM?\n\n" +
-                            "The native uploader verifies the CCAL CRC before " +
+                            "The native uploader verifies the calibration CRC before " +
                             "opening the RP1210 adapter. If CRC verification " +
                             "fails, no programming traffic is sent.")
                     .setNegativeButton("Cancel", null)
@@ -718,7 +718,7 @@ public final class MainActivity extends Activity {
         final String mac = selectedMac();
         final File temp = new File(
                 getCacheDir(),
-                "calibration-pull-" + System.currentTimeMillis() + ".ccal");
+                "calibration-pull-" + System.currentTimeMillis() + ".xcal");
 
         saveSettings();
         setBusy(true);
@@ -793,7 +793,7 @@ public final class MainActivity extends Activity {
         final String mac = selectedMac();
         final File temp = new File(
                 getCacheDir(),
-                "calibration-upload-" + System.currentTimeMillis() + ".ccal");
+                "calibration-upload-" + System.currentTimeMillis() + ".xcal");
 
         saveSettings();
         setBusy(true);

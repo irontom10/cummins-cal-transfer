@@ -2,17 +2,17 @@
 
 ## About
 
-**Calibration Transfer** is an independent, open-source Cummins ECM calibration transfer utility for Windows and Android. Built around a shared **ISO C89** protocol core, it reads calibration data from supported ECMs into `.ccal` files and provides validated upload support for compatible controllers over **J1939/RP1210**.
+**Calibration Transfer** is an independent, open-source Cummins ECM calibration transfer utility for Windows and Android. Built around a shared **ISO C89** protocol core, it reads calibration data from supported ECMs into `.xcal` files and provides validated upload support for compatible controllers over **J1939/RP1210**.
 
 The goal is straightforward: portable, inspectable calibration tooling without duplicating the protocol stack for every operating system. Windows now defaults to an ISO C89 Win32 API front end linked directly with the native RP1210/J1939 core. It requires no .NET runtime or WinForms. The previous WinForms front end is retained as an opt-in legacy build; Android uses the same native calibration/J1939 core through its own front end and transport adapter.
 
-**Status:** Active development. Readback support spans multiple protocol families, but programming support is intentionally narrower. A valid `.ccal` file is not, by itself, proof that it is compatible with a particular ECM. Treat calibration uploads as potentially destructive and follow the [programming caution](#programming-caution).
+**Status:** Active development. Readback support spans multiple protocol families, but programming support is intentionally narrower. A valid `.xcal` file is not, by itself, proof that it is compatible with a particular ECM. Treat calibration uploads as potentially destructive and follow the [programming caution](#programming-caution).
 
 ## Features
 
-- Download calibration data from a supported ECM into a `.ccal` file.
+- Download calibration data from a supported ECM into a `.xcal` file.
 - Auto-detect newer CLIP sessions, ECH/ECHO-series readback sessions, and legacy ENI / ELITE II (CM550/CM554) download sessions.
-- Upload a validated `.ccal` file back to a supported ECM.
+- Upload a validated `.xcal` file back to a supported ECM.
 - Discover installed RP1210 APIs and devices.
 - Remember the selected adapter/J1939 settings in `~/.config/CalibrationTransfer/config.toml`.
 - Perform session authentication and calibration transfer.
@@ -110,7 +110,7 @@ build.bat win-forms
 
 ### Experimental raylib Windows UI
 
-An optional native C89 **raylib** frontend lives in [src/windows/raylib](src/windows/raylib). It has the same adapter discovery, J1939 settings, ECM download, guarded CCAL upload, progress and TOML settings behavior as the native Win32 UI, using the existing protocol core rather than a new implementation.
+An optional native C89 **raylib** frontend lives in [src/windows/raylib](src/windows/raylib). It has the same adapter discovery, J1939 settings, ECM download, guarded XCAL upload, progress and TOML settings behavior as the native Win32 UI, using the existing protocol core rather than a new implementation.
 
 On Windows with CMake and the x86 MSVC build tools, run:
 
@@ -201,13 +201,13 @@ either front end destroying the other platform's settings.
 Check a calibration file:
 
 ```bat
-build\tools\crc_call.exe check mycal.ccal
+build\tools\crc_call.exe check mycal.xcal
 ```
 
 Set the supported file CRC fields:
 
 ```bat
-build\tools\crc_call.exe set mycal.ccal
+build\tools\crc_call.exe set mycal.xcal
 ```
 
 ## Validation status
@@ -224,6 +224,8 @@ Upload is rejected before the RP1210 adapter is opened when calibration-file CRC
 ECH/ECHO readback support is validated against the supplied raw Proprietary-A trace and matching `.ccal`: descriptor 0x002E, metadata reads, transfer control 0x04/0x05, and all 4C/4D memory reads reproduce the calibration image. The supplied ECH trace is a readback trace, not a programming trace, so ECH/ECHO programming remains intentionally blocked.
 
 Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
+
+**Filename extension:** Downloads now default to `.xcal`, and upload dialogs prefer `.xcal`. Existing `.ccal` files remain selectable through the legacy filter, with the same calibration bytes and CRCs. The exported `*_ccal` API function names remain unchanged for binary compatibility.
 
 See [docs/upload-validation.md](docs/upload-validation.md) for upload validation details and [docs/memory-descriptor-validation.md](docs/memory-descriptor-validation.md) for the measured CLIP memory-descriptor layout and INCAL corpus results. The [CM2450A/BKK compatibility exceptions](docs/experimental-cm2450a-bkk.md) explain the experimental high-address short-region handling and the negative `03 <seq> FF FC` unlock response, including why neither is yet live-flash validated.
 
