@@ -28,6 +28,7 @@ import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -157,6 +158,7 @@ public final class MainActivity extends Activity {
     private Button pairButton;
     private Button pullButton;
     private Button uploadButton;
+    private CheckBox canTraceCheck;
 
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
         @Override
@@ -341,6 +343,11 @@ public final class MainActivity extends Activity {
 
         ecmSaEdit = hexByteEdit("00");
         root.addView(row("ECM SA (hex):", ecmSaEdit), fullWidth());
+
+        canTraceCheck = new CheckBox(this);
+        canTraceCheck.setText("Capture full CAN frames (sensitive)");
+        canTraceCheck.setChecked(false);
+        root.addView(canTraceCheck, fullWidth());
 
         LinearLayout transferButtons = new LinearLayout(this);
         transferButtons.setOrientation(LinearLayout.HORIZONTAL);
@@ -716,6 +723,7 @@ public final class MainActivity extends Activity {
         final int toolSa = parseHexByte(toolSaEdit, "Tool SA");
         final int ecmSa = parseHexByte(ecmSaEdit, "ECM SA");
         final String mac = selectedMac();
+        final boolean traceCan = canTraceCheck.isChecked();
         final File temp = new File(
                 getCacheDir(),
                 "calibration-pull-" + System.currentTimeMillis() + ".xcal");
@@ -732,6 +740,10 @@ public final class MainActivity extends Activity {
                 try {
                     prepareDriver(driver, mac);
 
+                    nativeBridge.configureLogging(
+                            new File(getFilesDir(), "caltransfer.log").getAbsolutePath(),
+                            new File(getFilesDir(), "caltransfer-can.log").getAbsolutePath(),
+                            traceCan);
                     rc = nativeBridge.pullCcal(
                             driver.api,
                             baud,
@@ -791,6 +803,7 @@ public final class MainActivity extends Activity {
         final int toolSa = parseHexByte(toolSaEdit, "Tool SA");
         final int ecmSa = parseHexByte(ecmSaEdit, "ECM SA");
         final String mac = selectedMac();
+        final boolean traceCan = canTraceCheck.isChecked();
         final File temp = new File(
                 getCacheDir(),
                 "calibration-upload-" + System.currentTimeMillis() + ".xcal");
@@ -808,6 +821,10 @@ public final class MainActivity extends Activity {
                     copyUriToFile(source, temp);
                     prepareDriver(driver, mac);
 
+                    nativeBridge.configureLogging(
+                            new File(getFilesDir(), "caltransfer.log").getAbsolutePath(),
+                            new File(getFilesDir(), "caltransfer-can.log").getAbsolutePath(),
+                            traceCan);
                     rc = nativeBridge.uploadCcal(
                             driver.api,
                             baud,
