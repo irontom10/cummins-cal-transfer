@@ -77,7 +77,7 @@ Requirements:
 - x86 MSVC C/C++ build tools and Windows SDK
 - LLVM tools on PATH (`clang-cl.exe` and `lld-link.exe`)
 - Microsoft Visual C++ x86 Redistributable installed to run the default /MD executable
-- A compatible 32-bit RP1210 implementation
+- A compatible 32-bit RP1210 implementation for the default x86 build (64-bit vendor RP1210 DLL for x64)
 
 Run:
 
@@ -104,9 +104,13 @@ build.bat win-api-tiny-no-icon
 
 build.bat win-forms
 :: Legacy .NET 10 WinForms frontend (requires .NET SDK).
+
+build-x64.bat
+:: Native LLVM/Clang WinAPI x64 executable, no icon, dynamic CRT (/MD).
+:: Output: build\x64\app\CalibrationTransfer.exe
 ```
 
-`build.bat` is equivalent to `build.bat win-api-clang-no-icon`. All Windows variants write `build/app/CalibrationTransfer.exe`; build one at a time. The independent raylib frontend remains opt-in through `build-raylib.bat`. The native WinAPI frontend still needs hardware bench validation before production ECM programming. See [measured WinAPI sizes](docs/winapi-binary-size.md) for the full comparison.
+`build.bat` is equivalent to `build.bat win-api-clang-no-icon`. Its Windows x86 variants write `build/app/CalibrationTransfer.exe`; build one at a time. The separate `build-x64.bat` writes to `build/x64/app/CalibrationTransfer.exe` without changing the default x86 build. **The x64 executable can only load 64-bit RP1210 vendor DLLs**, so use the x86 build with adapters whose RP1210 drivers are x86-only. The x64 `/MD` build also requires the Microsoft VC++ x64 Redistributable. The independent raylib frontend remains opt-in through `build-raylib.bat`. The native WinAPI frontend still needs hardware bench validation before production ECM programming. See [measured WinAPI sizes](docs/winapi-binary-size.md) for the full comparison.
 
 ### Experimental raylib Windows UI
 
@@ -231,7 +235,7 @@ See [docs/upload-validation.md](docs/upload-validation.md) for upload validation
 
 ## Releases
 
-Normal pushes and pull requests automatically build the default LLVM WinAPI x86 application and Android APK. The published `builds/latest/CalibrationTransfer-win-x86.exe` is a **direct EXE**, with `CalibrationTransfer-win-x86.exe.sha256`; no ZIP is required. GitHub Actions artifact downloads may still arrive inside GitHub's own artifact archive.
+Normal pushes and pull requests automatically build the default LLVM WinAPI x86 application, the separate native WinAPI x64 application, and Android APK. The published `builds/latest/` directory contains **direct executables** `CalibrationTransfer-win-x86.exe` and `CalibrationTransfer-win-x64.exe`, alongside `CalibrationTransfer-android.apk` and individual `.sha256` files; no ZIP wrappers are committed. GitHub Actions artifact downloads may still arrive inside GitHub's own artifact archive. The x64 program requires a compatible 64-bit RP1210 vendor DLL; it cannot use a 32-bit-only adapter DLL.
 
 Version tags automatically produce a GitHub Release containing both platform binaries and SHA-256 checksums:
 
