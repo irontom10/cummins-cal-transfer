@@ -15,6 +15,7 @@ static FILE *g_event_file = NULL;
 static FILE *g_can_file = NULL;
 static int g_trace_can = -1;
 static int g_last_percent = -1;
+static char g_last_message[256];
 
 static void log_copy(char *dst, const char *src, size_t cap)
 {
@@ -86,6 +87,7 @@ int ct_log_begin(const char *operation, const char *api, int device,
         trace = env != NULL && strcmp(env, "1") == 0;
     }
     g_last_percent = -1;
+    g_last_message[0] = '\0';
     g_event_file = fopen(g_event_path, "a");
     if (g_event_file == NULL) return -1;
     if (trace) {
@@ -127,8 +129,11 @@ void ct_log_event(const char *level, const char *module, const char *message)
 void ct_log_progress(int percent, const char *message)
 {
     char label[32];
-    if (percent == g_last_percent) return;
+    if (message == NULL) message = "";
+    if (percent == g_last_percent && strcmp(message, g_last_message) == 0)
+        return;
     g_last_percent = percent;
+    log_copy(g_last_message, message, sizeof(g_last_message));
     sprintf(label, "PROGRESS %d%%", percent);
     ct_log_event("INFO", label, message);
 }
