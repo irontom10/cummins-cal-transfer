@@ -17,6 +17,7 @@
 #include "j1939_transport.h"
 #include "rp1210_transport.h"
 #include "ct_platform.h"
+#include "ct_logger.h"
 
 #define J1939_TRANSPORT_MAX_PAYLOAD        4096U
 #define J1939_RP1210_RX_OVERHEAD             32U
@@ -70,6 +71,7 @@ set_error_text(struct j1939_transport *transport, const char *text)
         return;
 
     safe_copy(transport->last_error, text, sizeof(transport->last_error));
+    ct_log_event("ERROR", "J1939", text);
 }
 
 static int
@@ -400,6 +402,9 @@ j1939_transport_send(struct j1939_transport *transport,
     buffer[5] = transport->destination_address;
     memcpy(buffer + 6U, payload, payload_len);
 
+    ct_log_can_frame("TX", ct_monotonic_ms(), transport->pgn,
+                     transport->priority, transport->source_address,
+                     transport->destination_address, payload, payload_len);
     rc = rp1210_transport_send(transport->rp1210,
                                buffer,
                                payload_len + 6U);
@@ -451,6 +456,7 @@ j1939_transport_receive(struct j1939_transport *transport,
                                       remaining);
         if (rc != RP1210_TRANSPORT_OK)
             return map_rp1210_result(transport, rc);
+        ct_log_can_raw("RX-RAW", ct_monotonic_ms(), buffer, message_len);
 
         /*
          * RP1210 J1939 receive framing is vendor-dependent when transmitted
@@ -511,6 +517,9 @@ j1939_transport_receive(struct j1939_transport *transport,
 
                 memcpy(payload, buffer + header_len, n_payload);
                 *payload_len = n_payload;
+                ct_log_can_frame("RX", ct_monotonic_ms(), pgn,
+                                 buffer[header_len - 3U], source_address,
+                                 destination_address, payload, n_payload);
                 return J1939_TRANSPORT_OK;
             }
         }
