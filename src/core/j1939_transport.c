@@ -406,12 +406,13 @@ j1939_transport_send(struct j1939_transport *transport,
     buffer[5] = transport->destination_address;
     memcpy(buffer + 6U, payload, payload_len);
 
-    ct_log_can_frame("TX", ct_monotonic_ms(), transport->pgn,
-                     transport->priority, transport->source_address,
-                     transport->destination_address, payload, payload_len);
     rc = rp1210_transport_send(transport->rp1210,
                                buffer,
                                payload_len + 6U);
+    ct_log_can_frame(rc == RP1210_TRANSPORT_OK ? "TX" : "TX-FAILED",
+                     ct_monotonic_ms(), transport->pgn,
+                     transport->priority, transport->source_address,
+                     transport->destination_address, payload, payload_len);
     return map_rp1210_result(transport, rc);
 }
 
