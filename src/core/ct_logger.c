@@ -145,6 +145,7 @@ void ct_log_can_frame(const char *direction, unsigned long tick_ms,
             direction, tick_ms, pgn, priority, sa, da, (unsigned long)length);
     hex_bytes(g_can_file, payload, length);
     fputc('\n', g_can_file);
+    fflush(g_can_file);
 }
 
 void ct_log_can_raw(const char *direction, unsigned long tick_ms,
@@ -156,6 +157,7 @@ void ct_log_can_raw(const char *direction, unsigned long tick_ms,
             direction, tick_ms, (unsigned long)length);
     hex_bytes(g_can_file, buffer, length);
     fputc('\n', g_can_file);
+    fflush(g_can_file);
 }
 
 void ct_log_end(const char *operation, int rc, const char *error)
