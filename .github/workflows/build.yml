@@ -29,8 +29,13 @@ jobs:
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/j1939_transport_test.c \
             src/core/j1939_transport.c \
+            src/core/ct_logger.c \
             src/core/ct_platform.c \
             -o build/tests/j1939_transport_test
+
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            tests/ct_logger_test.c src/core/ct_logger.c \
+            -o build/tests/ct_logger_test
 
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/clip_secure_seed_test.c \
@@ -39,6 +44,7 @@ jobs:
 
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test
+          build/tests/ct_logger_test
           build/tests/clip_secure_seed_test
 
   windows-x86:
