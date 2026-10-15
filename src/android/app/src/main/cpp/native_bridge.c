@@ -10,6 +10,7 @@
 #include "rp1210_android.h"
 #include "rp1210clip.h"
 #include "config_store.h"
+#include "ct_logger.h"
 
 static JavaVM *g_vm = NULL;
 static jobject g_progress_target = NULL;
@@ -107,6 +108,31 @@ jni_progress(int percent, const char *message)
 
     if (attached)
         (*g_vm)->DetachCurrentThread(g_vm);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_irontom10_calibrationtransfer_NativeBridge_configureLogging(
+    JNIEnv *env, jobject self, jstring event_path,
+    jstring can_path, jboolean trace_can)
+{
+    const char *events;
+    const char *frames;
+    (void)self;
+
+    if (event_path == NULL || can_path == NULL)
+        return -1;
+    events = (*env)->GetStringUTFChars(env, event_path, NULL);
+    if (events == NULL)
+        return -1;
+    frames = (*env)->GetStringUTFChars(env, can_path, NULL);
+    if (frames == NULL) {
+        (*env)->ReleaseStringUTFChars(env, event_path, events);
+        return -1;
+    }
+    ct_log_configure(events, frames, trace_can ? 1 : 0);
+    (*env)->ReleaseStringUTFChars(env, event_path, events);
+    (*env)->ReleaseStringUTFChars(env, can_path, frames);
+    return 0;
 }
 
 JNIEXPORT jint JNICALL
