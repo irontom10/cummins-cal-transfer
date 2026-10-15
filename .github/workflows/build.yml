@@ -66,6 +66,42 @@ jobs:
           path: build/app/CalibrationTransfer.exe
           if-no-files-found: error
 
+  windows-x64:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build native LLVM x64 WinAPI
+        shell: cmd
+        run: build-x64.bat
+
+      - name: Verify PE32+ x64 executable
+        shell: pwsh
+        run: |
+          $path = 'build/x64/app/CalibrationTransfer.exe'
+          $bytes = [System.IO.File]::ReadAllBytes($path)
+          if ($bytes.Length -lt 256) { throw 'Missing/invalid x64 executable.' }
+          $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($offset -lt 0x40 -or $offset + 26 -gt $bytes.Length) {
+            throw 'Invalid PE header offset.'
+          }
+          $signature = [BitConverter]::ToUInt32($bytes, $offset)
+          $machine = [BitConverter]::ToUInt16($bytes, $offset + 4)
+          $magic = [BitConverter]::ToUInt16($bytes, $offset + 24)
+          if ($signature -ne 0x4550 -or $machine -ne 0x8664 -or $magic -ne 0x20b) {
+            throw ('Expected PE32+ AMD64; got signature={0:X} machine={1:X} magic={2:X}' -f $signature, $machine, $magic)
+          }
+          Write-Host ("Verified PE32+ x64 binary: {0:N0} bytes" -f $bytes.Length)
+
+      - name: Upload Windows x64 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: build/x64/app/CalibrationTransfer.exe
+          if-no-files-found: error
+
   android:
     runs-on: ubuntu-latest
 
@@ -138,6 +174,7 @@ jobs:
     needs:
       - protocol-tests
       - windows-x86
+      - windows-x64
       - android
     runs-on: ubuntu-latest
     permissions:
@@ -152,6 +189,12 @@ jobs:
         with:
           name: windows-x86
           path: latest-input/windows
+
+      - name: Download Windows x64 build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: latest-input/windows-x64
 
       - name: Download Android build
         uses: actions/download-artifact@v4
@@ -170,6 +213,9 @@ jobs:
           cp latest-input/windows/CalibrationTransfer.exe \
             builds/latest/CalibrationTransfer-win-x86.exe
 
+          cp latest-input/windows-x64/CalibrationTransfer.exe \
+            builds/latest/CalibrationTransfer-win-x64.exe
+
           cp latest-input/android/app-debug.apk \
             builds/latest/CalibrationTransfer-android.apk
 
@@ -177,6 +223,8 @@ jobs:
             cd builds/latest
             sha256sum CalibrationTransfer-win-x86.exe \
               > CalibrationTransfer-win-x86.exe.sha256
+            sha256sum CalibrationTransfer-win-x64.exe \
+              > CalibrationTransfer-win-x64.exe.sha256
             sha256sum CalibrationTransfer-android.apk \
               > CalibrationTransfer-android.apk.sha256
           )
