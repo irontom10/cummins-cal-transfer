@@ -18,6 +18,7 @@
 
 #include "rp1210clip.h"
 #include "config_store.h"
+#include "ct_logger.h"
 
 #if defined(_WIN64)
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -34,6 +35,7 @@
 #define ID_REFRESH     1007
 #define ID_PULL        1008
 #define ID_UPLOAD      1009
+#define ID_CAN_TRACE   1010
 
 #define WM_TRANSFER_PROGRESS (WM_APP + 1)
 #define WM_TRANSFER_FINISHED (WM_APP + 2)
@@ -67,6 +69,7 @@ struct app_state {
     HWND refresh;
     HWND pull;
     HWND upload;
+    HWND can_trace;
     HWND progress;
     HWND status;
     RP1210_DEVICE devices[RP1210_MAX_DEVICES];
@@ -433,6 +436,7 @@ set_busy(int busy)
     EnableWindow(g_ui.refresh, !busy);
     EnableWindow(g_ui.pull, !busy);
     EnableWindow(g_ui.upload, !busy);
+    EnableWindow(g_ui.can_trace, !busy);
 }
 
 static void RP1210_CALL
@@ -512,6 +516,10 @@ start_transfer(int upload)
     HANDLE thread;
     unsigned thread_id;
     char confirm[1600];
+    char event_path[MAX_PATH];
+    char can_path[MAX_PATH];
+    DWORD dir_len;
+    int trace_can;
 
     if (g_ui.busy)
         return;
@@ -574,6 +582,16 @@ start_transfer(int upload)
     }
 
     save_config(0);
+    trace_can = SendMessageA(g_ui.can_trace, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    dir_len = GetTempPathA((DWORD)sizeof(event_path), event_path);
+    if (dir_len > 0 && dir_len < (DWORD)sizeof(event_path) - 34U) {
+        copy_text(can_path, event_path, sizeof(can_path));
+        strcat(event_path, "CalibrationTransfer.log");
+        strcat(can_path, "CalibrationTransfer-can.log");
+        ct_log_configure(event_path, can_path, trace_can);
+    } else {
+        ct_log_configure(NULL, NULL, trace_can);
+    }
     SendMessageA(g_ui.progress, PBM_SETPOS, 0, 0);
     set_status(upload ? "Verifying calibration CRC..." : "Starting...");
     set_busy(1);
@@ -677,6 +695,10 @@ create_controls(void)
     make_label("ECM SA (hex):", 235);
     g_ui.ecm_sa = make_edit(ID_ECM_SA, 235, "00");
 
+    g_ui.can_trace = make_control("BUTTON",
+                                  "Capture full CAN trace (sensitive)",
+                                  BS_AUTOCHECKBOX | WS_TABSTOP, 0,
+                                  ID_CAN_TRACE, 175, 270, 355, 22);
     g_ui.refresh = make_control("BUTTON", "Refresh",
                                 BS_PUSHBUTTON | WS_TABSTOP,
                                 0, ID_REFRESH, 175, 295, 125, 32);
@@ -700,7 +722,8 @@ create_controls(void)
            g_ui.protocol != NULL && g_ui.baud != NULL &&
            g_ui.tool_sa != NULL && g_ui.ecm_sa != NULL &&
            g_ui.refresh != NULL && g_ui.pull != NULL &&
-           g_ui.upload != NULL && g_ui.progress != NULL &&
+           g_ui.upload != NULL && g_ui.can_trace != NULL &&
+           g_ui.progress != NULL &&
            g_ui.status != NULL;
 }
 

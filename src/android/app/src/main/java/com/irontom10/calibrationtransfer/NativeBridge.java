@@ -10,6 +10,8 @@ public final class NativeBridge {
     }
 
     public native int configureRp1210(String dataPath, String macAddress);
+    public native int configureLogging(String eventPath, String canPath,
+                                       boolean traceCan);
 
     public native int configLoad(String path);
     public native void configClose();

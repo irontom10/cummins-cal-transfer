@@ -120,6 +120,7 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATI
     "%SRC_WIN_NATIVE%\rp1210scan.c" ^
     "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
     "%SRC_CORE%\j1939_transport.c" ^
+    "%SRC_CORE%\ct_logger.c" ^
     "%SRC_CORE%\ct_platform.c" ^
     "%SRC_CORE%\clip_transfer.c" ^
     "%SRC_CORE%\echo_transfer.c" ^
@@ -133,7 +134,7 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
+    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_logger.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj ccal_crc.obj ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 
@@ -189,6 +190,7 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
         "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
         "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_logger.c" ^
         "%SRC_CORE%\ct_platform.c" ^
         "%SRC_CORE%\clip_transfer.c" ^
         "%SRC_CORE%\echo_transfer.c" ^
@@ -205,6 +207,7 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_WIN_NATIVE%\rp1210scan.c" ^
         "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
         "%SRC_CORE%\j1939_transport.c" ^
+        "%SRC_CORE%\ct_logger.c" ^
         "%SRC_CORE%\ct_platform.c" ^
         "%SRC_CORE%\clip_transfer.c" ^
         "%SRC_CORE%\echo_transfer.c" ^
@@ -236,7 +239,7 @@ if "%NATIVE_UI%"=="1" (
             /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT ^
             /OUT:"%APP%\CalibrationTransfer.exe" ^
         main.obj %WINAPI_RESOURCE% ^
-        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
+        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_logger.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
@@ -246,7 +249,7 @@ if "%NATIVE_UI%"=="1" (
             /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT ^
             /OUT:"%APP%\CalibrationTransfer.exe" ^
         main.obj %WINAPI_RESOURCE% ^
-        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
+        rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_logger.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
         clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib

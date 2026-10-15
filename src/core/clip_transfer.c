@@ -20,6 +20,7 @@
 #include "clip_cal.h"
 #include "ccal_crc.h"
 #include "ct_platform.h"
+#include "ct_logger.h"
 
 #define CLIP_J1939_PGN                 0x00ef00UL
 #define CLIP_J1939_PRIORITY            6U
@@ -147,6 +148,7 @@ static void
 set_last_error_text(const char *text)
 {
     safe_copy(g_last_error, text, sizeof(g_last_error));
+    ct_log_event("ERROR", "TRANSFER", text);
 }
 
 static void
@@ -222,6 +224,7 @@ rp1210_get_last_error(char *buffer, int buffer_size)
 static void
 report_progress(struct pull_ctx *ctx, int percent, const char *text)
 {
+    ct_log_progress(percent, text);
     if (ctx != NULL && ctx->progress != NULL)
         ctx->progress(percent, text);
 }
@@ -3226,11 +3229,14 @@ rp1210_pull_ccal(const char *api_name,
     memset(&meta, 0, sizeof(meta));
 
     clear_last_error();
+    (void)ct_log_begin("PULL", api_name, device_id, baud,
+                       (unsigned int)tool_sa, (unsigned int)ecm_sa);
 
     if (api_name == NULL || api_name[0] == '\0' ||
         out_path == NULL || out_path[0] == '\0' ||
         device_id < 0) {
         set_last_error_text("Invalid RP1210 API, device, or output path.");
+        ct_log_end("PULL", PULL_ERR_ARGUMENT, g_last_error);
         return PULL_ERR_ARGUMENT;
     }
 
@@ -3400,6 +3406,7 @@ rp1210_pull_ccal(const char *api_name,
         (void)clip_send_close(&ctx);
     close_j1939_transport(&ctx);
     free_image(&image);
+    ct_log_end("PULL", rc, g_last_error);
 
     return rc;
 }
@@ -3430,11 +3437,14 @@ rp1210_upload_ccal(const char *api_name,
 
     memset(&ctx, 0, sizeof(ctx));
     clear_last_error();
+    (void)ct_log_begin("UPLOAD", api_name, device_id, baud,
+                       (unsigned int)tool_sa, (unsigned int)ecm_sa);
 
     if (api_name == NULL || api_name[0] == '\0' ||
         ccal_path == NULL || ccal_path[0] == '\0' ||
         device_id < 0) {
         set_last_error_text("Invalid RP1210 API, device, or XCAL path.");
+        ct_log_end("UPLOAD", PULL_ERR_ARGUMENT, g_last_error);
         return PULL_ERR_ARGUMENT;
     }
 
@@ -3455,12 +3465,19 @@ rp1210_upload_ccal(const char *api_name,
                 clip_cal_strerror(cal_rc));
         set_last_error_text(msg);
 
-        if (cal_rc == CLIP_CAL_ERR_CRC)
+        if (cal_rc == CLIP_CAL_ERR_CRC) {
+            ct_log_end("UPLOAD", PULL_ERR_CRC, g_last_error);
             return PULL_ERR_CRC;
-        if (cal_rc == CLIP_CAL_ERR_OPEN)
+        }
+        if (cal_rc == CLIP_CAL_ERR_OPEN) {
+            ct_log_end("UPLOAD", PULL_ERR_FILE, g_last_error);
             return PULL_ERR_FILE;
-        if (cal_rc == CLIP_CAL_ERR_MEMORY)
+        }
+        if (cal_rc == CLIP_CAL_ERR_MEMORY) {
+            ct_log_end("UPLOAD", PULL_ERR_MEMORY, g_last_error);
             return PULL_ERR_MEMORY;
+        }
+        ct_log_end("UPLOAD", PULL_ERR_CAL, g_last_error);
         return PULL_ERR_CAL;
     }
 
@@ -3676,6 +3693,7 @@ rp1210_upload_ccal(const char *api_name,
     if (clip_open && !loader_requested && !loader_mode)
         (void)clip_send_close(&ctx);
     close_j1939_transport(&ctx);
+    ct_log_end("UPLOAD", rc, g_last_error);
     return rc;
 }
 

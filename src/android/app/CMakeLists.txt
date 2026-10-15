@@ -11,6 +11,7 @@ add_library(caltransfer SHARED
     ../../core/ct_platform.c
     ../../core/config_store.c
     ../../core/j1939_transport.c
+    ../../core/ct_logger.c
     ../../core/clip_transfer.c
     ../../core/echo_transfer.c
     ../../core/clip_crypto.c
