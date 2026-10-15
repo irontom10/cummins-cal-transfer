@@ -214,6 +214,10 @@ command_or_connect_error(struct j1939_transport *transport,
                                   command,
                                   data,
                                   data_len);
+    sprintf(tmp, "RP1210 command=%d bytes=%lu result=%d",
+            command, (unsigned long)data_len, rc);
+    ct_log_event(rc == RP1210_TRANSPORT_OK ? "DEBUG" : "ERROR",
+                 "RP1210", tmp);
     if (rc == RP1210_TRANSPORT_OK)
         return J1939_TRANSPORT_OK;
 
