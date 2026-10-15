@@ -15,7 +15,7 @@ add_library(caltransfer SHARED
     ../../core/echo_transfer.c
     ../../core/clip_crypto.c
     ../../core/clip_cal.c
-    ../../core/ccal_crc.c
+    ../../core/xcal_crc.c
 )
 
 target_include_directories(caltransfer PRIVATE

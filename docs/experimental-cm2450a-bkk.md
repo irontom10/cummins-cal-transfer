@@ -4,7 +4,7 @@
 
 ## Observed file layout
 
-A CM2450A / BKK .ccal that passes the file-level CRC and Intel HEX checks
+A CM2450A / BKK .xcal that passes the file-level CRC and Intel HEX checks
 contains four ordered regions:
 
 | Start | Bytes | Upload path |
@@ -48,7 +48,7 @@ Run the local protocol regression suite:
 mkdir -p build/tests
 cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
   tests/clip_cal_protocol_test.c src/core/clip_cal.c \
-  src/core/ccal_crc.c src/core/ct_platform.c \
+  src/core/xcal_crc.c src/core/ct_platform.c \
   -o build/tests/clip_cal_protocol_test
 build/tests/clip_cal_protocol_test
 ```
@@ -120,7 +120,7 @@ positive re-lock acknowledgement unless the ECM replies `01 <seq> FF FF`.
 
 ## Verification and remaining unknowns
 
-Regression tests use small **synthetic** CCAL files and mocked ACKs; they
+Regression tests use small **synthetic** XCAL files and mocked ACKs; they
 check the 4-region layout, `0x4B` address/length framing, `0x4D` bulk start
 addresses, invalid-layout rejections, and strict parsing of real response
 shapes. CI validates C89 builds and tests. There is no confirmed live

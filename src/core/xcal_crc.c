@@ -1,4 +1,4 @@
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -9,19 +9,19 @@
  * continues to physical EOF. Keep that distinction unless the format
  * requirements and existing calibration files have been revalidated.
  */
-enum ccal_header_format {
-    CCAL_HEADER_PLAIN,
-    CCAL_HEADER_EXTENDED
+enum xcal_header_format {
+    XCAL_HEADER_PLAIN,
+    XCAL_HEADER_EXTENDED
 };
 
-enum ccal_end_marker_policy {
-    CCAL_READ_TO_PHYSICAL_EOF,
-    CCAL_STOP_AT_DOS_EOF
+enum xcal_end_marker_policy {
+    XCAL_READ_TO_PHYSICAL_EOF,
+    XCAL_STOP_AT_DOS_EOF
 };
 
-enum ccal_crc_operation {
-    CCAL_VERIFY_CRC,
-    CCAL_REPAIR_CRC
+enum xcal_crc_operation {
+    XCAL_VERIFY_CRC,
+    XCAL_REPAIR_CRC
 };
 
 /* Return 1 if the low eight bits contain an odd number of set bits. */
@@ -34,7 +34,7 @@ static unsigned int has_odd_byte_parity(unsigned int byte_value)
     return byte_value & 1U;
 }
 
-/* Update the CCAL CRC using one byte. The shifts/masks are protocol logic. */
+/* Update the XCAL CRC using one byte. The shifts/masks are protocol logic. */
 static unsigned short update_crc_with_byte(unsigned short current_crc,
                                            unsigned int input_byte)
 {
@@ -57,7 +57,7 @@ static unsigned short update_crc_with_byte(unsigned short current_crc,
  * Public API: extend an existing CRC over a NUL-terminated byte string.
  * Bytes below ASCII space are ignored; the first NUL ends the string.
  */
-unsigned short ccal_crc(unsigned short current_crc, const unsigned char *text)
+unsigned short xcal_crc(unsigned short current_crc, const unsigned char *text)
 {
     while (*text != '\0') {
         if (*text >= 0x20U) {
@@ -152,7 +152,7 @@ static unsigned short swap_u16_bytes(unsigned short value)
  * are not validated while parsing.
  */
 static int parse_crc_header(const char *header_line,
-                            enum ccal_header_format header_format,
+                            enum xcal_header_format header_format,
                             unsigned short *stored_crc,
                             unsigned short *calculated_crc,
                             char header_suffix[16])
@@ -163,7 +163,7 @@ static int parse_crc_header(const char *header_line,
     header_length = strlen(header_line);
     *calculated_crc = 0U;
 
-    if (header_format == CCAL_HEADER_PLAIN) {
+    if (header_format == XCAL_HEADER_PLAIN) {
         if (header_length != 4U || !parse_hex_u16(header_line, stored_crc)) {
             return 0;
         }
@@ -179,7 +179,7 @@ static int parse_crc_header(const char *header_line,
     *stored_crc = swap_u16_bytes(encoded_crc);
     memcpy(header_suffix, header_line + 7, 10U);
     header_suffix[10] = '\0';
-    *calculated_crc = ccal_crc(*calculated_crc,
+    *calculated_crc = xcal_crc(*calculated_crc,
                                (const unsigned char *)header_suffix);
     return 1;
 }
@@ -190,7 +190,7 @@ static int parse_crc_header(const char *header_line,
  * All bytes below 0x20 are excluded from the CRC, including CR and LF.
  */
 static int update_crc_from_file_body(FILE *input,
-                                     enum ccal_end_marker_policy end_policy,
+                                     enum xcal_end_marker_policy end_policy,
                                      unsigned short *calculated_crc)
 {
     int input_character;
@@ -198,7 +198,7 @@ static int update_crc_from_file_body(FILE *input,
 
     skip_to_next_line = 0;
     while ((input_character = fgetc(input)) != EOF) {
-        if (end_policy == CCAL_STOP_AT_DOS_EOF &&
+        if (end_policy == XCAL_STOP_AT_DOS_EOF &&
             (unsigned char)input_character == 0x1AU) {
             break;
         }
@@ -225,8 +225,8 @@ static int update_crc_from_file_body(FILE *input,
 
 /* Read the stored CRC and calculate the CRC of the remaining file bytes. */
 static int calculate_file_crc(const char *filename,
-                              enum ccal_header_format header_format,
-                              enum ccal_end_marker_policy end_policy,
+                              enum xcal_header_format header_format,
+                              enum xcal_end_marker_policy end_policy,
                               unsigned short *stored_crc,
                               unsigned short *calculated_crc,
                               char header_suffix[16])
@@ -316,9 +316,9 @@ static int append_hex_record_checksum(char *record)
 
 /* Verify the stored CRC or overwrite it with the calculated value. */
 static int process_file_crc(const char *filename,
-                            enum ccal_header_format header_format,
-                            enum ccal_end_marker_policy end_policy,
-                            enum ccal_crc_operation operation)
+                            enum xcal_header_format header_format,
+                            enum xcal_end_marker_policy end_policy,
+                            enum xcal_crc_operation operation)
 {
     unsigned short stored_crc;
     unsigned short calculated_crc;
@@ -330,11 +330,11 @@ static int process_file_crc(const char *filename,
         return 0;
     }
 
-    if (operation == CCAL_VERIFY_CRC || stored_crc == calculated_crc) {
+    if (operation == XCAL_VERIFY_CRC || stored_crc == calculated_crc) {
         return stored_crc == calculated_crc;
     }
 
-    if (header_format == CCAL_HEADER_PLAIN) {
+    if (header_format == XCAL_HEADER_PLAIN) {
         sprintf(replacement_header, "%04X", (unsigned int)calculated_crc);
         return overwrite_file_header(filename, replacement_header, 4U);
     }
@@ -350,36 +350,36 @@ static int process_file_crc(const char *filename,
 }
 
 /* Public names and call semantics are retained for all existing callers. */
-int ccal_check_cal_file_crc(const char *filename)
+int xcal_check_cal_file_crc(const char *filename)
 {
-    return process_file_crc(filename, CCAL_HEADER_PLAIN,
-                            CCAL_STOP_AT_DOS_EOF, CCAL_VERIFY_CRC) ||
-           process_file_crc(filename, CCAL_HEADER_EXTENDED,
-                            CCAL_STOP_AT_DOS_EOF, CCAL_VERIFY_CRC);
+    return process_file_crc(filename, XCAL_HEADER_PLAIN,
+                            XCAL_STOP_AT_DOS_EOF, XCAL_VERIFY_CRC) ||
+           process_file_crc(filename, XCAL_HEADER_EXTENDED,
+                            XCAL_STOP_AT_DOS_EOF, XCAL_VERIFY_CRC);
 }
 
-int ccal_check_header_file_crc(const char *filename)
+int xcal_check_header_file_crc(const char *filename)
 {
-    return process_file_crc(filename, CCAL_HEADER_PLAIN,
-                            CCAL_STOP_AT_DOS_EOF, CCAL_VERIFY_CRC);
+    return process_file_crc(filename, XCAL_HEADER_PLAIN,
+                            XCAL_STOP_AT_DOS_EOF, XCAL_VERIFY_CRC);
 }
 
-int ccal_set_cal_file_crc(const char *filename)
+int xcal_set_cal_file_crc(const char *filename)
 {
-    return process_file_crc(filename, CCAL_HEADER_PLAIN,
-                            CCAL_READ_TO_PHYSICAL_EOF, CCAL_REPAIR_CRC) ||
-           process_file_crc(filename, CCAL_HEADER_EXTENDED,
-                            CCAL_READ_TO_PHYSICAL_EOF, CCAL_REPAIR_CRC);
+    return process_file_crc(filename, XCAL_HEADER_PLAIN,
+                            XCAL_READ_TO_PHYSICAL_EOF, XCAL_REPAIR_CRC) ||
+           process_file_crc(filename, XCAL_HEADER_EXTENDED,
+                            XCAL_READ_TO_PHYSICAL_EOF, XCAL_REPAIR_CRC);
 }
 
-int ccal_check_file_crc(const char *filename)
+int xcal_check_file_crc(const char *filename)
 {
-    return process_file_crc(filename, CCAL_HEADER_PLAIN,
-                            CCAL_STOP_AT_DOS_EOF, CCAL_VERIFY_CRC);
+    return process_file_crc(filename, XCAL_HEADER_PLAIN,
+                            XCAL_STOP_AT_DOS_EOF, XCAL_VERIFY_CRC);
 }
 
-int ccal_set_file_crc(const char *filename)
+int xcal_set_file_crc(const char *filename)
 {
-    return process_file_crc(filename, CCAL_HEADER_PLAIN,
-                            CCAL_READ_TO_PHYSICAL_EOF, CCAL_REPAIR_CRC);
+    return process_file_crc(filename, XCAL_HEADER_PLAIN,
+                            XCAL_READ_TO_PHYSICAL_EOF, XCAL_REPAIR_CRC);
 }

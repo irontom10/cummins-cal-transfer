@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "clip_cal.h"
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 
 static void
 test_mode_request(void)
@@ -354,7 +354,7 @@ test_sequence_and_crc(void)
 }
 
 static void
-write_ccal_fixture(const char *path, int include_loader_metadata)
+write_xcal_fixture(const char *path, int include_loader_metadata)
 {
     FILE *fp;
 
@@ -373,7 +373,7 @@ write_ccal_fixture(const char *path, int include_loader_metadata)
 
     assert(fputs(":00000001FF\n", fp) >= 0);
     assert(fclose(fp) == 0);
-    assert(ccal_set_cal_file_crc(path) != 0);
+    assert(xcal_set_cal_file_crc(path) != 0);
 }
 
 /*
@@ -396,12 +396,12 @@ write_three_region_fixture(const char *path)
     assert(fputs(":010000007887\n", fp) >= 0);
     assert(fputs(":00000001FF\n", fp) >= 0);
     assert(fclose(fp) == 0);
-    assert(ccal_set_cal_file_crc(path) != 0);
+    assert(xcal_set_cal_file_crc(path) != 0);
 }
 
 /*
  * Synthetic four-range CM2450A/BKK file with a 16-byte 0x02000000 tail.
- * No calibration contents from the real captured CCAL are checked in.
+ * No calibration contents from the real captured XCAL are checked in.
  */
 static void
 write_experimental_bkk_fixture(const char *path,
@@ -440,7 +440,7 @@ write_experimental_bkk_fixture(const char *path,
 
     assert(fputs(":00000001FF\n", fp) >= 0);
     assert(fclose(fp) == 0);
-    assert(ccal_set_cal_file_crc(path) != 0);
+    assert(xcal_set_cal_file_crc(path) != 0);
 }
 
 struct upload_trace {
@@ -534,7 +534,7 @@ static void
 test_three_region_upload_stream(void)
 {
     const char *three_path = "build/tests/three-region.xcal";
-    const char *legacy_path = "build/tests/short-region.ccal";
+    const char *legacy_path = "build/tests/short-region.xcal";
     const char *bad_path = "build/tests/missing-region.xcal";
     struct upload_trace trace;
     clip_cal_io io;
@@ -547,10 +547,10 @@ test_three_region_upload_stream(void)
     options.timeout_ms = 1000UL;
 
     write_three_region_fixture(three_path);
-    assert(clip_cal_validate_ccal(three_path) == CLIP_CAL_OK);
+    assert(clip_cal_validate_xcal(three_path) == CLIP_CAL_OK);
 
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_ccal(three_path, &io, &options) == CLIP_CAL_OK);
+    assert(clip_cal_send_xcal(three_path, &io, &options) == CLIP_CAL_OK);
     assert(trace.start_commands == 1U);
     assert(trace.end_commands == 1U);
     assert(trace.region_lengths == 3U);
@@ -563,9 +563,9 @@ test_three_region_upload_stream(void)
     assert(trace.bulk_addresses[2] == 0x00040000UL);
 
     /* Preserve the already validated short-region programming sequence. */
-    write_ccal_fixture(legacy_path, 1);
+    write_xcal_fixture(legacy_path, 1);
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_ccal(legacy_path, &io, &options) == CLIP_CAL_OK);
+    assert(clip_cal_send_xcal(legacy_path, &io, &options) == CLIP_CAL_OK);
     assert(trace.start_commands == 1U);
     assert(trace.end_commands == 1U);
     assert(trace.region_lengths == 1U);
@@ -575,9 +575,9 @@ test_three_region_upload_stream(void)
     assert(trace.count == 5U);
 
     /* A CRC-correct but incomplete one-region file still sends nothing. */
-    write_ccal_fixture(bad_path, 0);
+    write_xcal_fixture(bad_path, 0);
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_ccal(bad_path, &io, &options) ==
+    assert(clip_cal_send_xcal(bad_path, &io, &options) ==
            CLIP_CAL_ERR_LAYOUT);
     assert(trace.count == 0U);
 
@@ -609,9 +609,9 @@ test_experimental_cm2450a_bkk_region(void)
     options.timeout_ms = 1000UL;
 
     write_experimental_bkk_fixture(good, 16U, 0x0200U, 1);
-    assert(clip_cal_validate_ccal(good) == CLIP_CAL_OK);
+    assert(clip_cal_validate_xcal(good) == CLIP_CAL_OK);
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_ccal(good, &io, &options) == CLIP_CAL_OK);
+    assert(clip_cal_send_xcal(good, &io, &options) == CLIP_CAL_OK);
     assert(trace.start_commands == 1U);
     assert(trace.end_commands == 1U);
     assert(trace.region_lengths == 4U);
@@ -633,13 +633,13 @@ test_experimental_cm2450a_bkk_region(void)
     write_experimental_bkk_fixture(bad17, 17U, 0x0200U, 1);
     write_experimental_bkk_fixture(badaddr, 16U, 0x0300U, 1);
     write_experimental_bkk_fixture(badcount, 16U, 0x0200U, 0);
-    assert(clip_cal_validate_ccal(bad15) == CLIP_CAL_ERR_LAYOUT);
-    assert(clip_cal_validate_ccal(bad17) == CLIP_CAL_ERR_LAYOUT);
-    assert(clip_cal_validate_ccal(badaddr) == CLIP_CAL_ERR_RANGE);
-    assert(clip_cal_validate_ccal(badcount) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_xcal(bad15) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_xcal(bad17) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_xcal(badaddr) == CLIP_CAL_ERR_RANGE);
+    assert(clip_cal_validate_xcal(badcount) == CLIP_CAL_ERR_LAYOUT);
 
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_ccal(bad15, &io, &options) ==
+    assert(clip_cal_send_xcal(bad15, &io, &options) ==
            CLIP_CAL_ERR_LAYOUT);
     assert(trace.count == 0U);
 
@@ -651,16 +651,16 @@ test_experimental_cm2450a_bkk_region(void)
 }
 
 static void
-test_full_ccal_preflight(void)
+test_full_xcal_preflight(void)
 {
     const char *valid_path = "build/tests/valid-preflight.xcal";
     const char *bad_layout_path = "build/tests/bad-layout.xcal";
 
-    write_ccal_fixture(valid_path, 1);
-    write_ccal_fixture(bad_layout_path, 0);
+    write_xcal_fixture(valid_path, 1);
+    write_xcal_fixture(bad_layout_path, 0);
 
-    assert(clip_cal_validate_ccal(valid_path) == CLIP_CAL_OK);
-    assert(clip_cal_validate_ccal(bad_layout_path) == CLIP_CAL_ERR_LAYOUT);
+    assert(clip_cal_validate_xcal(valid_path) == CLIP_CAL_OK);
+    assert(clip_cal_validate_xcal(bad_layout_path) == CLIP_CAL_ERR_LAYOUT);
 
     remove(valid_path);
     remove(bad_layout_path);
@@ -678,7 +678,7 @@ main(void)
     test_memory_descriptor_corpus_shapes();
     test_memory_descriptor_auxiliary_is_opaque();
     test_sequence_and_crc();
-    test_full_ccal_preflight();
+    test_full_xcal_preflight();
     test_three_region_upload_stream();
     test_experimental_cm2450a_bkk_region();
 

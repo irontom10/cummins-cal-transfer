@@ -319,17 +319,17 @@ unsigned int clip_cal_crc16_kermit(const unsigned char *data,
                                    unsigned long length);
 
 /* Verify the calibration file-level CRC token before any programming traffic. */
-int clip_cal_verify_ccal_crc(const char *filename);
+int clip_cal_verify_xcal_crc(const char *filename);
 
 /*
  * Fully validate an XCAL for the raw-loader programming path without sending
  * any vehicle traffic.  This checks the file CRCs, Intel-HEX syntax/checksums,
  * record ordering, either the captured 0x00A00000 metadata layout or the
  * three-flash-region CLIP layout, and the address/length constraints used by
- * clip_cal_send_ccal().  The three-region stream has not yet been confirmed
+ * clip_cal_send_xcal().  The three-region stream has not yet been confirmed
  * against a live programming trace.
  */
-int clip_cal_validate_ccal(const char *filename);
+int clip_cal_validate_xcal(const char *filename);
 
 /*
  * Program a parsed .xcal over the raw loader protocol observed in the
@@ -342,11 +342,11 @@ int clip_cal_validate_ccal(const char *filename);
  *   44 00 0B 02 <value>   final captured parameter write
  *   07                    finish transfer phase
  *
- * The function refuses to transmit anything unless clip_cal_verify_ccal_crc()
+ * The function refuses to transmit anything unless clip_cal_verify_xcal_crc()
  * succeeds first.  The caller must already have transitioned the ECM from the
  * authenticated CLIP session into the raw calibration loader.
  */
-int clip_cal_send_ccal(const char *filename,
+int clip_cal_send_xcal(const char *filename,
                        const clip_cal_io *io,
                        const clip_cal_options *options);
 

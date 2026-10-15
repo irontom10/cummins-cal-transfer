@@ -54,7 +54,7 @@ ct_native_choose_path(int upload, char *path, unsigned long cap, void *owner)
 {
     OPENFILENAMEA dialog;
     static const char filters[] =
-        "XCAL calibration (*.xcal)\0*.xcal\0Legacy CCAL (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
+        "XCAL calibration (*.xcal)\0*.xcal\0All files (*.*)\0*.*\0";
     memset(&dialog, 0, sizeof(dialog));
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = (HWND)owner;
@@ -89,12 +89,12 @@ transfer_thread(void *argument)
     char error[CT_RAYLIB_STATUS_CAP];
     (void)argument;
     if (g_request.upload) {
-        rc = rp1210_upload_ccal(g_request.api, g_request.device_id,
+        rc = rp1210_upload_xcal(g_request.api, g_request.device_id,
                                 g_request.baud, g_request.tool_sa,
                                 g_request.ecm_sa, g_request.path,
                                 report_progress);
     } else {
-        rc = rp1210_pull_ccal(g_request.api, g_request.device_id,
+        rc = rp1210_pull_xcal(g_request.api, g_request.device_id,
                               g_request.baud, g_request.tool_sa,
                               g_request.ecm_sa, g_request.path,
                               report_progress);

@@ -37,7 +37,7 @@ public final class NativeBridge {
     public native String configGetPath();
     public native String configGetLastError();
 
-    public native int pullCcal(
+    public native int pullXcal(
             String apiName,
             int baud,
             int toolSa,
@@ -45,7 +45,7 @@ public final class NativeBridge {
             String outputPath,
             Object progressTarget);
 
-    public native int uploadCcal(
+    public native int uploadXcal(
             String apiName,
             int baud,
             int toolSa,

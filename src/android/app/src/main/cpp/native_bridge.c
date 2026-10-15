@@ -468,7 +468,7 @@ run_transfer(JNIEnv *env,
     }
 
     if (upload) {
-        rc = rp1210_upload_ccal(
+        rc = rp1210_upload_xcal(
             api,
             2,
             (int)baud,
@@ -477,7 +477,7 @@ run_transfer(JNIEnv *env,
             path,
             jni_progress);
     } else {
-        rc = rp1210_pull_ccal(
+        rc = rp1210_pull_xcal(
             api,
             2,
             (int)baud,
@@ -496,7 +496,7 @@ run_transfer(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
-Java_com_irontom10_calibrationtransfer_NativeBridge_pullCcal(
+Java_com_irontom10_calibrationtransfer_NativeBridge_pullXcal(
     JNIEnv *env,
     jobject self,
     jstring api_name,
@@ -519,7 +519,7 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_pullCcal(
 }
 
 JNIEXPORT jint JNICALL
-Java_com_irontom10_calibrationtransfer_NativeBridge_uploadCcal(
+Java_com_irontom10_calibrationtransfer_NativeBridge_uploadXcal(
     JNIEnv *env,
     jobject self,
     jstring api_name,

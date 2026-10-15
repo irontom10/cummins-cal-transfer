@@ -518,7 +518,7 @@ public sealed class Rp1210Form : Form
 
         using (SaveFileDialog dialog = new SaveFileDialog())
         {
-            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|Legacy CCAL (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|All files (*.*)|*.*";
             dialog.DefaultExt = "xcal";
             dialog.AddExtension = true;
             dialog.FileName = "ecm-upload.xcal";
@@ -558,7 +558,7 @@ public sealed class Rp1210Form : Form
         {
             rc = await Task.Run(delegate
             {
-                return NativeRP1210.rp1210_pull_ccal(
+                return NativeRP1210.rp1210_pull_xcal(
                     api.Api,
                     deviceId,
                     baud,
@@ -665,7 +665,7 @@ public sealed class Rp1210Form : Form
 
         using (OpenFileDialog dialog = new OpenFileDialog())
         {
-            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|Legacy CCAL (*.ccal)|*.ccal|All files (*.*)|*.*";
+            dialog.Filter = "XCAL calibration (*.xcal)|*.xcal|All files (*.*)|*.*";
             dialog.CheckFileExists = true;
             dialog.Multiselect = false;
 
@@ -716,7 +716,7 @@ public sealed class Rp1210Form : Form
         {
             rc = await Task.Run(delegate
             {
-                return NativeRP1210.rp1210_upload_ccal(
+                return NativeRP1210.rp1210_upload_xcal(
                     api.Api,
                     deviceId,
                     baud,

@@ -37,7 +37,7 @@ internal static class NativeRP1210
         DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
-    public static extern int rp1210_pull_ccal(
+    public static extern int rp1210_pull_xcal(
         string api,
         int deviceId,
         int baud,
@@ -50,13 +50,13 @@ internal static class NativeRP1210
         DllName,
         CallingConvention = CallingConvention.Cdecl,
         CharSet = CharSet.Ansi)]
-    public static extern int rp1210_upload_ccal(
+    public static extern int rp1210_upload_xcal(
         string api,
         int deviceId,
         int baud,
         byte toolSa,
         byte ecmSa,
-        string ccalPath,
+        string xcalPath,
         ProgressCallback progress);
 
     [DllImport(
