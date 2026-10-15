@@ -3465,17 +3465,20 @@ rp1210_upload_ccal(const char *api_name,
                 clip_cal_strerror(cal_rc));
         set_last_error_text(msg);
 
-        if (cal_rc == CLIP_CAL_ERR_CRC)
+        if (cal_rc == CLIP_CAL_ERR_CRC) {
             ct_log_end("UPLOAD", PULL_ERR_CRC, g_last_error);
             return PULL_ERR_CRC;
-        if (cal_rc == CLIP_CAL_ERR_OPEN)
+        }
+        if (cal_rc == CLIP_CAL_ERR_OPEN) {
             ct_log_end("UPLOAD", PULL_ERR_FILE, g_last_error);
             return PULL_ERR_FILE;
-        if (cal_rc == CLIP_CAL_ERR_MEMORY)
+        }
+        if (cal_rc == CLIP_CAL_ERR_MEMORY) {
             ct_log_end("UPLOAD", PULL_ERR_MEMORY, g_last_error);
             return PULL_ERR_MEMORY;
+        }
         ct_log_end("UPLOAD", PULL_ERR_CAL, g_last_error);
-            return PULL_ERR_CAL;
+        return PULL_ERR_CAL;
     }
 
     ctx.transport = NULL;
