@@ -25,7 +25,7 @@ typedef void (RP1210_CALL *RP1210_PROGRESS_CALLBACK)(int percent,
  * Returns 0 on success, negative on failure.  Call rp1210_get_last_error()
  * for a human-readable error string.
  */
-RP1210_EXPORT int RP1210_CALL rp1210_pull_ccal(
+RP1210_EXPORT int RP1210_CALL rp1210_pull_xcal(
     const char *api,
     int device_id,
     int baud,
@@ -37,13 +37,13 @@ RP1210_EXPORT int RP1210_CALL rp1210_pull_ccal(
 
 /* Verify and program a .xcal file into the ECM.  The native
  * implementation verifies the calibration file CRC before opening the adapter. */
-RP1210_EXPORT int RP1210_CALL rp1210_upload_ccal(
+RP1210_EXPORT int RP1210_CALL rp1210_upload_xcal(
     const char *api,
     int device_id,
     int baud,
     unsigned char tool_sa,
     unsigned char ecm_sa,
-    const char *ccal_path,
+    const char *xcal_path,
     RP1210_PROGRESS_CALLBACK progress
 );
 

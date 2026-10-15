@@ -458,12 +458,12 @@ transfer_worker(void *argument)
 
     request = (struct transfer_request *)argument;
     if (request->upload) {
-        request->result = rp1210_upload_ccal(
+        request->result = rp1210_upload_xcal(
             request->api, request->device_id, request->baud,
             request->tool_sa, request->ecm_sa, request->path,
             progress_callback);
     } else {
-        request->result = rp1210_pull_ccal(
+        request->result = rp1210_pull_xcal(
             request->api, request->device_id, request->baud,
             request->tool_sa, request->ecm_sa, request->path,
             progress_callback);
@@ -483,7 +483,7 @@ choose_path(int upload, char *path, DWORD size)
 {
     OPENFILENAMEA dialog;
     static const char filter[] =
-        "XCAL calibration (*.xcal)\0*.xcal\0Legacy CCAL (*.ccal)\0*.ccal\0All files (*.*)\0*.*\0";
+        "XCAL calibration (*.xcal)\0*.xcal\0All files (*.*)\0*.*\0";
 
     memset(&dialog, 0, sizeof(dialog));
     dialog.lStructSize = sizeof(dialog);

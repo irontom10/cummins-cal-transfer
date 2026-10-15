@@ -15,7 +15,7 @@
 #include <string.h>
 
 #include "echo_transfer.h"
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 #include "ct_platform.h"
 
 #define ECHO_MAX_WIRE          4096U
@@ -749,7 +749,7 @@ write_image(FILE *fp, const struct echo_image *image)
 }
 
 static int
-write_ccal(const char *path,
+write_xcal(const char *path,
            const struct echo_meta *meta,
            const struct echo_image *image)
 {
@@ -841,10 +841,10 @@ write_ccal(const char *path,
         return ECHO_TRANSFER_ERR_FILE;
     }
 
-    if (!ccal_set_cal_file_crc(path) ||
-        !ccal_check_cal_file_crc(path) ||
-        !ccal_check_header_file_crc(path) ||
-        !ccal_check_file_crc(path)) {
+    if (!xcal_set_cal_file_crc(path) ||
+        !xcal_check_cal_file_crc(path) ||
+        !xcal_check_header_file_crc(path) ||
+        !xcal_check_file_crc(path)) {
         set_error("ECH/ECHO .xcal CRC finalization failed.");
         return ECHO_TRANSFER_ERR_CRC;
     }
@@ -875,7 +875,7 @@ echo_probe(const echo_io *io)
 }
 
 int
-echo_pull_ccal(const echo_io *io, const char *path)
+echo_pull_xcal(const echo_io *io, const char *path)
 {
     struct echo_meta meta;
     struct echo_image image;
@@ -924,7 +924,7 @@ echo_pull_ccal(const echo_io *io, const char *path)
     opened = 0;
 
     progress(io, 95, "Writing ECH/ECHO .xcal file...");
-    rc = write_ccal(path, &meta, &image);
+    rc = write_xcal(path, &meta, &image);
     if (rc != ECHO_TRANSFER_OK)
         goto done;
 

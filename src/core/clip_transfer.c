@@ -18,7 +18,7 @@
 #include "echo_transfer.h"
 #include "clip_crypto.h"
 #include "clip_cal.h"
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 #include "ct_platform.h"
 
 #define CLIP_J1939_PGN                 0x00ef00UL
@@ -1041,7 +1041,7 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
      *   be32 length[range_count]
      *
      * In the supplied ENI capture this describes six ranges which collapse to
-     * the three runs present in the resulting legacy .ccal:
+     * the three runs present in the resulting legacy .xcal:
      * 00004004-00006000, 00008000-0007FFFE, 01000080-01001FFE.
      */
     nested_len = elite_load_be16(data);
@@ -2375,9 +2375,9 @@ collect_auxiliary(struct pull_ctx *ctx,
 
     /*
      * The recording performs a post-upload 0x2285 query, but its reply is a
-     * large compatibility table -- it is NOT the four-hex-digit .ccal token.
+     * large compatibility table -- it is NOT the four-hex-digit .xcal token.
      * Keep the query as a best-effort cleanup/compatibility step.  The file
-     * writer still starts with a 0000 placeholder; rp1210_pull_ccal() patches
+     * writer still starts with a 0000 placeholder; rp1210_pull_xcal() patches
      * and verifies it with the recovered native calibration CRC implementation
      * immediately after the file is closed.
      */
@@ -2484,7 +2484,7 @@ write_ihex_record(FILE *fp,
 
 
 static int
-write_elite_ccal(const char *path, const struct pull_image *image)
+write_elite_xcal(const char *path, const struct pull_image *image)
 {
     FILE *fp;
     unsigned int order[CLIP_CAL_MAX_RANGES];
@@ -2520,7 +2520,7 @@ write_elite_ccal(const char *path, const struct pull_image *image)
 
     /*
      * Legacy ENI files store their calibration CRC in the address field of a
-     * proprietary type-FF Intel-HEX record.  ccal_set_cal_file_crc() already
+     * proprietary type-FF Intel-HEX record.  xcal_set_cal_file_crc() already
      * knows this alternate format and patches the 0000 placeholder below.
      */
     ok = write_ihex_record(fp, 0xffU, 0U, crc_placeholder, 4U);
@@ -2630,7 +2630,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
         return 0;
 
     /*
-     * reference tool's .ccal emits Intel-HEX runs in ascending flash-address order,
+     * reference tool's .xcal emits Intel-HEX runs in ascending flash-address order,
      * not descriptor-array order.  Sort only the tiny index list.
      */
     order_count = image->range_count;
@@ -2700,7 +2700,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
 }
 
 static int
-write_ccal(const char *path,
+write_xcal(const char *path,
            const struct pull_meta *meta,
            const struct pull_image *image)
 {
@@ -3201,7 +3201,7 @@ relock_after_loader_failure(struct pull_ctx *ctx,
 }
 
 int RP1210_CALL
-rp1210_pull_ccal(const char *api_name,
+rp1210_pull_xcal(const char *api_name,
                  int device_id,
                  int baud,
                  unsigned char tool_sa,
@@ -3266,7 +3266,7 @@ rp1210_pull_ccal(const char *api_name,
 
         if (echo_detected > 0) {
             clear_last_error();
-            rc = echo_pull_ccal(&echo, out_path);
+            rc = echo_pull_xcal(&echo, out_path);
             if (rc != ECHO_TRANSFER_OK)
                 rc = map_echo_result(rc);
             else {
@@ -3306,13 +3306,13 @@ rp1210_pull_ccal(const char *api_name,
         elite_open = 0;
 
         report_progress(&ctx, 95, "Writing legacy ENI .xcal file...");
-        rc = write_elite_ccal(out_path, &image);
+        rc = write_elite_xcal(out_path, &image);
         if (rc != PULL_OK)
             goto done;
 
         report_progress(&ctx, 98, "Finalizing legacy calibration CRC...");
-        if (!ccal_set_cal_file_crc(out_path) ||
-            !ccal_check_cal_file_crc(out_path)) {
+        if (!xcal_set_cal_file_crc(out_path) ||
+            !xcal_check_cal_file_crc(out_path)) {
             set_last_error_text(
                 "ENI calibration was pulled, but legacy calibration CRC finalization failed.");
             rc = PULL_ERR_CRC;
@@ -3376,15 +3376,15 @@ rp1210_pull_ccal(const char *api_name,
         goto done;
 
     report_progress(&ctx, 94, "Writing .xcal file...");
-    rc = write_ccal(out_path, &meta, &image);
+    rc = write_xcal(out_path, &meta, &image);
     if (rc != PULL_OK)
         goto done;
 
     report_progress(&ctx, 98, "Calibration data written; finalizing file CRC...");
-    if (!ccal_set_cal_file_crc(out_path) ||
-        !ccal_check_cal_file_crc(out_path) ||
-        !ccal_check_header_file_crc(out_path) ||
-        !ccal_check_file_crc(out_path)) {
+    if (!xcal_set_cal_file_crc(out_path) ||
+        !xcal_check_cal_file_crc(out_path) ||
+        !xcal_check_header_file_crc(out_path) ||
+        !xcal_check_file_crc(out_path)) {
         set_last_error_text("Calibration was pulled, but native calibration CRC finalization failed.");
         rc = PULL_ERR_CRC;
         goto done;
@@ -3405,12 +3405,12 @@ rp1210_pull_ccal(const char *api_name,
 }
 
 int RP1210_CALL
-rp1210_upload_ccal(const char *api_name,
+rp1210_upload_xcal(const char *api_name,
                    int device_id,
                    int baud,
                    unsigned char tool_sa,
                    unsigned char ecm_sa,
-                   const char *ccal_path,
+                   const char *xcal_path,
                    RP1210_PROGRESS_CALLBACK progress)
 {
     struct pull_ctx ctx;
@@ -3432,7 +3432,7 @@ rp1210_upload_ccal(const char *api_name,
     clear_last_error();
 
     if (api_name == NULL || api_name[0] == '\0' ||
-        ccal_path == NULL || ccal_path[0] == '\0' ||
+        xcal_path == NULL || xcal_path[0] == '\0' ||
         device_id < 0) {
         set_last_error_text("Invalid RP1210 API, device, or XCAL path.");
         return PULL_ERR_ARGUMENT;
@@ -3440,13 +3440,13 @@ rp1210_upload_ccal(const char *api_name,
 
     /*
      * Deliberately perform the complete file/programming-layout preflight
-     * before opening the adapter.  A CRC-valid but unsupported/truncated CCAL
+     * before opening the adapter.  A CRC-valid but unsupported/truncated XCAL
      * therefore cannot put an ECM into loader mode.
      */
     if (progress != NULL)
         progress(0, "Validating XCAL CRC, Intel-HEX structure, and loader layout...");
 
-    cal_rc = clip_cal_validate_ccal(ccal_path);
+    cal_rc = clip_cal_validate_xcal(xcal_path);
     if (cal_rc != CLIP_CAL_OK) {
         char msg[512];
 
@@ -3611,7 +3611,7 @@ rp1210_upload_ccal(const char *api_name,
     options.progress_user = &ctx;
 
     report_progress(&ctx, 35, "Programming verified XCAL...");
-    rc = clip_cal_send_ccal(ccal_path, &io, &options);
+    rc = clip_cal_send_xcal(xcal_path, &io, &options);
     if (rc != CLIP_CAL_OK) {
         char msg[512];
         sprintf(msg, "Calibration upload failed: %s (clip_cal=%d)",

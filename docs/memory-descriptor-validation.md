@@ -117,7 +117,7 @@ The 264 `auxiliary < length` cases were exact region matches and were all
 CM850-family payloads in this scan.  This is direct evidence that the auxiliary
 array must not be treated as a simple maximum-size/capacity array.
 
-Some older CCAL wrappers in this particular scan were not metadata-decoded by
+Some older XCAL wrappers in this particular scan were not metadata-decoded by
 the first scanner build.  That affects fields such as module name and product
 ID in the report, but not the independently reconstructed Intel HEX regions or
 descriptor bytes used for the measurements above.

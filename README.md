@@ -29,7 +29,7 @@ The goal is straightforward: portable, inspectable calibration tooling without d
     ├── core/
     │   ├── clip_cal.c/.h
     │   ├── clip_crypto.c/.h
-    │   ├── ccal_crc.c/.h
+    │   ├── xcal_crc.c/.h
     │   ├── config_store.c/.h
     │   ├── clip_transfer.c
     │   ├── echo_transfer.c/.h
@@ -225,11 +225,11 @@ The generated programming stream was compared request-for-request with a known-g
 
 Upload is rejected before the RP1210 adapter is opened when calibration-file CRC validation fails.
 
-ECH/ECHO readback support is validated against the supplied raw Proprietary-A trace and matching `.ccal`: descriptor 0x002E, metadata reads, transfer control 0x04/0x05, and all 4C/4D memory reads reproduce the calibration image. The supplied ECH trace is a readback trace, not a programming trace, so ECH/ECHO programming remains intentionally blocked.
+ECH/ECHO readback support is validated against the supplied raw Proprietary-A trace and matching `.xcal`: descriptor 0x002E, metadata reads, transfer control 0x04/0x05, and all 4C/4D memory reads reproduce the calibration image. The supplied ECH trace is a readback trace, not a programming trace, so ECH/ECHO programming remains intentionally blocked.
 
-Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.ccal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
+Legacy ENI / ELITE II download support is validated against the supplied CM550/CM554 transfer trace and legacy `.xcal` layout. ECHO II / ENI / ELITE II programming remains intentionally blocked.
 
-**Filename extension:** Downloads now default to `.xcal`, and upload dialogs prefer `.xcal`. Existing `.ccal` files remain selectable through the legacy filter, with the same calibration bytes and CRCs. The exported `*_ccal` API function names remain unchanged for binary compatibility.
+**Filename extension:** Downloads and upload dialogs use `.xcal`. CRC validation and file parsing operate on calibration contents, not the extension. Native `*_xcal` entry points replace the previous exported names; rebuild client binaries and native libraries together.
 
 See [docs/upload-validation.md](docs/upload-validation.md) for upload validation details and [docs/memory-descriptor-validation.md](docs/memory-descriptor-validation.md) for the measured CLIP memory-descriptor layout and INCAL corpus results. The [CM2450A/BKK compatibility exceptions](docs/experimental-cm2450a-bkk.md) explain the experimental high-address short-region handling and the negative `03 <seq> FF FC` unlock response, including why neither is yet live-flash validated.
 

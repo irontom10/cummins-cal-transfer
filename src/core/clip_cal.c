@@ -7,7 +7,7 @@
  */
 
 #include "clip_cal.h"
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 #include "ct_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -725,7 +725,7 @@ static int clip_cal_image_append(clip_cal_image *image,
     return CLIP_CAL_OK;
 }
 
-static int clip_cal_parse_ccal(const char *filename, clip_cal_image *image)
+static int clip_cal_parse_xcal(const char *filename, clip_cal_image *image)
 {
     FILE *fp;
     char line[CLIP_CAL_LINE_MAX];
@@ -929,7 +929,7 @@ static int clip_cal_validate_image(const clip_cal_image *image,
      *
      * Keep the metadata-free case narrow until other loader layouts have
      * been validated independently.  An arbitrary one/two/four/five-range
-     * truncated CCAL must not become programmable just by fixing its CRC.
+     * truncated XCAL must not become programmable just by fixing its CRC.
      */
     if (found_special == 0U && image->count != 3U) {
         return CLIP_CAL_ERR_LAYOUT;
@@ -967,24 +967,24 @@ unsigned int clip_cal_crc16_kermit(const unsigned char *data,
     return crc & 0xFFFFU;
 }
 
-int clip_cal_verify_ccal_crc(const char *filename)
+int clip_cal_verify_xcal_crc(const char *filename)
 {
     if (filename == NULL || filename[0] == '\0')
         return 0;
 
-    /* A normal CCAL uses the four-hex-character first-line token.  Require
+    /* A normal XCAL uses the four-hex-character first-line token.  Require
        all public checks supplied by the recovered calibration CRC implementation
        to agree before a single programming packet is emitted. */
-    if (!ccal_check_cal_file_crc(filename))
+    if (!xcal_check_cal_file_crc(filename))
         return 0;
-    if (!ccal_check_header_file_crc(filename))
+    if (!xcal_check_header_file_crc(filename))
         return 0;
-    if (!ccal_check_file_crc(filename))
+    if (!xcal_check_file_crc(filename))
         return 0;
     return 1;
 }
 
-int clip_cal_validate_ccal(const char *filename)
+int clip_cal_validate_xcal(const char *filename)
 {
     clip_cal_image image;
     int rc;
@@ -993,7 +993,7 @@ int clip_cal_validate_ccal(const char *filename)
         return CLIP_CAL_ERR_ARGUMENT;
     }
 
-    if (!clip_cal_verify_ccal_crc(filename)) {
+    if (!clip_cal_verify_xcal_crc(filename)) {
         return CLIP_CAL_ERR_CRC;
     }
 
@@ -1001,7 +1001,7 @@ int clip_cal_validate_ccal(const char *filename)
     image.count = 0U;
     image.capacity = 0U;
 
-    rc = clip_cal_parse_ccal(filename, &image);
+    rc = clip_cal_parse_xcal(filename, &image);
     if (rc == CLIP_CAL_OK) {
         rc = clip_cal_validate_image(&image, NULL, NULL);
     }
@@ -1314,7 +1314,7 @@ static int clip_cal_send_bulk_region(const clip_cal_region *region,
     return CLIP_CAL_OK;
 }
 
-int clip_cal_send_ccal(const char *filename,
+int clip_cal_send_xcal(const char *filename,
                        const clip_cal_io *io,
                        const clip_cal_options *options)
 {
@@ -1335,7 +1335,7 @@ int clip_cal_send_ccal(const char *filename,
      * Keep the sender independently defensive even though the outer transfer
      * layer performs this same full preflight before opening the adapter.
      */
-    rc = clip_cal_validate_ccal(filename);
+    rc = clip_cal_validate_xcal(filename);
     if (rc != CLIP_CAL_OK) {
         return rc;
     }
@@ -1355,7 +1355,7 @@ int clip_cal_send_ccal(const char *filename,
     image.count = 0U;
     image.capacity = 0U;
 
-    rc = clip_cal_parse_ccal(filename, &image);
+    rc = clip_cal_parse_xcal(filename, &image);
     if (rc != CLIP_CAL_OK) {
         clip_cal_image_free(&image);
         return rc;

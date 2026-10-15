@@ -2,15 +2,15 @@
 
 ## File-level CRC gate
 
-`clip_cal_verify_ccal_crc()` requires all supported file checks to pass:
+`clip_cal_verify_xcal_crc()` requires all supported file checks to pass:
 
 ```c
-ccal_check_cal_file_crc(filename)
-ccal_check_header_file_crc(filename)
-ccal_check_file_crc(filename)
+xcal_check_cal_file_crc(filename)
+xcal_check_header_file_crc(filename)
+xcal_check_file_crc(filename)
 ```
 
-The check is performed at the top of `rp1210_upload_ccal()` before the RP1210 API is loaded, and again inside `clip_cal_send_ccal()` as a second barrier.
+The check is performed at the top of `rp1210_upload_xcal()` before the RP1210 API is loaded, and again inside `clip_cal_send_xcal()` as a second barrier.
 
 Known-good result:
 
@@ -23,14 +23,14 @@ CheckFileCRC = True
 A deliberately corrupted CRC produced:
 
 ```text
-clip_cal_send_ccal rc = -29 (CLIP_CAL_ERR_CRC)
+clip_cal_send_xcal rc = -29 (CLIP_CAL_ERR_CRC)
 send callback count = 0
 ```
 
 ## ECHO II / ELITE II safety block
 
 Programming ECHO II-era / ENI / ELITE II ECMs is intentionally disabled in
-`rp1210_upload_ccal()`.
+`rp1210_upload_xcal()`.
 
 The controller-family probe may identify one of these ECMs for supported read
 operations, but the upload path aborts before the programming preflight or
@@ -45,7 +45,7 @@ download/read support is available.
 
 ## Raw programming stream
 
-The final `clip_cal_send_ccal()` output was compared request-for-request with a known-good reference trace from the initial transfer command through the final completion command.
+The final `clip_cal_send_xcal()` output was compared request-for-request with a known-good reference trace from the initial transfer command through the final completion command.
 
 ```text
 Reference requests: 2287
@@ -97,7 +97,7 @@ The validated path uses:
 
 The captured readback contained 387,134 calibration bytes across the descriptor
 ranges. Reconstructing the `4D` payloads produces the same calibration bytes
-as the supplied ECH/ECHO `.ccal` data records.
+as the supplied ECH/ECHO `.xcal` data records.
 
 The trace does **not** contain an ECH/ECHO programming/write sequence. ECH/ECHO
 programming is therefore intentionally blocked; the implementation adds
@@ -123,7 +123,7 @@ Preflight still runs before RP1210 setup. A CRC-correct file without the special
 region must have **exactly three** ordered, nonempty, 24-bit-addressable ranges;
 other unsupported or incomplete layouts still fail before any programming
 traffic. The mock callback tests validate the two send patterns, including
-zero transmitted frames for a rejected incomplete CCAL.
+zero transmitted frames for a rejected incomplete XCAL.
 
 **Live programming boundary:** these changes are validated structurally and in
 mocked protocol tests, not against a captured three-region CM2250 programming
@@ -172,7 +172,7 @@ The log establishes the successful lock-mode request/response shapes. It does
 **not** prove successful re-lock immediately after a full flash; that remains
 a live validation boundary alongside the three-region loader sequence.
 
-## CM2450A/BKK four-region CCAL and negative unlock reply (experimental)
+## CM2450A/BKK four-region XCAL and negative unlock reply (experimental)
 
 A CRC-valid BKK file includes three normal 24-bit-addressable flash regions
 and a fourth **16-byte** range at `0x02000000`. Formerly, only the special

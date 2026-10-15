@@ -1,4 +1,4 @@
-#include "ccal_crc.h"
+#include "xcal_crc.h"
 #include <ctype.h>
 #include <stdio.h>
 
@@ -22,14 +22,14 @@ int main(int argc, char **argv)
     }
     m = argv[1]; f = argv[2];
     if (eq(m, "check")) {
-        r = ccal_check_cal_file_crc(f);    printf("CheckCalFileCRC = %s\n", b(r));
-        r = ccal_check_header_file_crc(f); printf("CheckHeaderFileCRC = %s\n", b(r));
-        r = ccal_check_file_crc(f);        printf("CheckFileCRC = %s\n", b(r));
+        r = xcal_check_cal_file_crc(f);    printf("CheckCalFileCRC = %s\n", b(r));
+        r = xcal_check_header_file_crc(f); printf("CheckHeaderFileCRC = %s\n", b(r));
+        r = xcal_check_file_crc(f);        printf("CheckFileCRC = %s\n", b(r));
         return 0;
     }
     if (eq(m, "set")) {
-        r = ccal_set_cal_file_crc(f); printf("SetCalFileCRC = %s\n", b(r));
-        r = ccal_set_file_crc(f);     printf("SetFileCRC = %s\n", b(r));
+        r = xcal_set_cal_file_crc(f); printf("SetCalFileCRC = %s\n", b(r));
+        r = xcal_set_file_crc(f);     printf("SetFileCRC = %s\n", b(r));
         return 0;
     }
     printf("unknown mode: %s\n", m);

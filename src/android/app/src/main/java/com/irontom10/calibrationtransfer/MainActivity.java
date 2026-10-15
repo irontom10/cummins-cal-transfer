@@ -732,7 +732,7 @@ public final class MainActivity extends Activity {
                 try {
                     prepareDriver(driver, mac);
 
-                    rc = nativeBridge.pullCcal(
+                    rc = nativeBridge.pullXcal(
                             driver.api,
                             baud,
                             toolSa,
@@ -808,7 +808,7 @@ public final class MainActivity extends Activity {
                     copyUriToFile(source, temp);
                     prepareDriver(driver, mac);
 
-                    rc = nativeBridge.uploadCcal(
+                    rc = nativeBridge.uploadXcal(
                             driver.api,
                             baud,
                             toolSa,

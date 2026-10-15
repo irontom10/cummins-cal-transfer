@@ -86,7 +86,7 @@ clang-cl /nologo --target=x86_64-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=ful
     "%SRC_CORE%\echo_transfer.c" ^
     "%SRC_CORE%\clip_crypto.c" ^
     "%SRC_CORE%\clip_cal.c" ^
-    "%SRC_CORE%\ccal_crc.c" ^
+    "%SRC_CORE%\xcal_crc.c" ^
     "%SRC_CORE%\config_store.c" ^
     "%SRC_WIN_API%\main.c"
 if errorlevel 1 goto :fail_from_obj
@@ -98,7 +98,7 @@ lld-link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS ^
     main.obj ^
     rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
     ct_platform.obj clip_transfer.obj echo_transfer.obj ^
-    clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
+    clip_crypto.obj clip_cal.obj xcal_crc.obj config_store.obj ^
     kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
 if errorlevel 1 goto :fail_from_obj
 

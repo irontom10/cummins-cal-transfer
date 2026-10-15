@@ -48,7 +48,7 @@ int echo_probe(const echo_io *io);
  * This module intentionally implements readback only.  It contains no
  * calibration/configuration programming path.
  */
-int echo_pull_ccal(const echo_io *io, const char *path);
+int echo_pull_xcal(const echo_io *io, const char *path);
 
 const char *echo_get_last_error(void);
 
