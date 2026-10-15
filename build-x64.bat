@@ -81,6 +81,7 @@ clang-cl /nologo --target=x86_64-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=ful
     "%SRC_WIN_NATIVE%\rp1210scan.c" ^
     "%SRC_WIN_NATIVE%\rp1210_transport.c" ^
     "%SRC_CORE%\j1939_transport.c" ^
+    "%SRC_CORE%\ct_logger.c" ^
     "%SRC_CORE%\ct_platform.c" ^
     "%SRC_CORE%\clip_transfer.c" ^
     "%SRC_CORE%\echo_transfer.c" ^
@@ -96,7 +97,7 @@ lld-link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS ^
     /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT ^
     /OUT:"%APP%\CalibrationTransfer.exe" ^
     main.obj ^
-    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
+    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_logger.obj ^
     ct_platform.obj clip_transfer.obj echo_transfer.obj ^
     clip_crypto.obj clip_cal.obj ccal_crc.obj config_store.obj ^
     kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
