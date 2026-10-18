@@ -38,6 +38,7 @@ add_executable(CalibrationTransferRaylib WIN32
     "${CORE}/echo_transfer.c"
     "${CORE}/clip_crypto.c"
     "${CORE}/clip_cal.c"
+    "${CORE}/j_endian.c"
     "${CORE}/xcal_crc.c"
     "${CORE}/config_store.c"
 )

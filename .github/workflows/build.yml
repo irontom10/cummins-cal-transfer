@@ -22,6 +22,7 @@ jobs:
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/clip_cal_protocol_test.c \
             src/core/clip_cal.c \
+            src/core/j_endian.c \
             src/core/xcal_crc.c \
             src/core/ct_platform.c \
             -o build/tests/clip_cal_protocol_test
@@ -35,8 +36,14 @@ jobs:
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/clip_secure_seed_test.c \
             src/core/clip_crypto.c \
+            src/core/j_endian.c \
             -o build/tests/clip_secure_seed_test
 
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            tests/j_endian_test.c src/core/j_endian.c \
+            -o build/tests/j_endian_test
+
+          build/tests/j_endian_test
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test
           build/tests/clip_secure_seed_test

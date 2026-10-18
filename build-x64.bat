@@ -86,6 +86,7 @@ clang-cl /nologo --target=x86_64-pc-windows-msvc /W3 /clang:-Oz /clang:-flto=ful
     "%SRC_CORE%\echo_transfer.c" ^
     "%SRC_CORE%\clip_crypto.c" ^
     "%SRC_CORE%\clip_cal.c" ^
+    "%SRC_CORE%\j_endian.c" ^
     "%SRC_CORE%\xcal_crc.c" ^
     "%SRC_CORE%\config_store.c" ^
     "%SRC_WIN_API%\main.c"

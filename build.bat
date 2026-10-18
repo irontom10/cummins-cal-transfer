@@ -125,6 +125,7 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATI
     "%SRC_CORE%\echo_transfer.c" ^
     "%SRC_CORE%\clip_crypto.c" ^
     "%SRC_CORE%\clip_cal.c" ^
+    "%SRC_CORE%\j_endian.c" ^
     "%SRC_CORE%\xcal_crc.c"
 if errorlevel 1 goto :fail_from_obj
 
@@ -194,6 +195,7 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_CORE%\echo_transfer.c" ^
         "%SRC_CORE%\clip_crypto.c" ^
         "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\j_endian.c" ^
         "%SRC_CORE%\xcal_crc.c" ^
         "%SRC_CORE%\config_store.c" ^
         "%SRC_WIN_API%\main.c"
@@ -210,6 +212,7 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_CORE%\echo_transfer.c" ^
         "%SRC_CORE%\clip_crypto.c" ^
         "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\j_endian.c" ^
         "%SRC_CORE%\xcal_crc.c" ^
         "%SRC_CORE%\config_store.c" ^
         "%SRC_WIN_API%\main.c"

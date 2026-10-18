@@ -83,8 +83,8 @@
 #define CLIP_CAL_HARNESS_COMPAT_SIZE    8U
 
 struct clip_cal_range {
-    clip_u32 address;
-    clip_u32 length;
+    j_u32 address;
+    j_u32 length;
 
     /*
      * A parallel per-range field exists in the descriptor between the address
@@ -94,59 +94,59 @@ struct clip_cal_range {
      * so this value must not be treated as a capacity/max-length field or used
      * to reject an otherwise valid descriptor.  Preserve it verbatim.
      */
-    clip_u32 auxiliary;
+    j_u32 auxiliary;
 };
 
 struct clip_cal_map {
     /* First 32-bit descriptor field; preserved without assigning semantics. */
-    clip_u32 descriptor_value;
+    j_u32 descriptor_value;
 
     unsigned int range_count;
     struct clip_cal_range ranges[CLIP_CAL_MAX_RANGES];
 
-    clip_u8 trailer[CLIP_CAL_MAX_TRAILER];
+    j_u8 trailer[CLIP_CAL_MAX_TRAILER];
     size_t trailer_len;
 };
 
 struct clip_cal_cursor {
     unsigned int range_index;
-    clip_u32 range_offset;
+    j_u32 range_offset;
 };
 
 struct clip_cal_read_info {
     unsigned int range_index;
-    clip_u32 address;
+    j_u32 address;
     unsigned int length;
 };
 
 /* Build: 12 seq 00 11 phase. */
 int
-clip_cal_build_phase_request(clip_u8 sequence,
-                             clip_u8 phase,
-                             clip_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE]);
+clip_cal_build_phase_request(j_u8 sequence,
+                             j_u8 phase,
+                             j_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE]);
 
 /* Build the general service-0x12 mode request: 12 seq mode[15:0] value. */
 int
-clip_cal_build_mode_request(clip_u8 sequence,
+clip_cal_build_mode_request(j_u8 sequence,
                             unsigned int mode,
-                            clip_u8 value,
-                            clip_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE]);
+                            j_u8 value,
+                            j_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE]);
 
 /* Build a single-ID query: 10 seq 01 01 id[23:0]. */
 int
-clip_cal_build_query_request(clip_u8 sequence,
+clip_cal_build_query_request(j_u8 sequence,
                              unsigned long identifier,
-                             clip_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE]);
+                             j_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE]);
 
 /*
  * Parse a generic positive response: 01 seq data...
  * data points into pdu and remains owned by the caller.
  */
 int
-clip_cal_parse_reply(const clip_u8 *pdu,
+clip_cal_parse_reply(const j_u8 *pdu,
                      size_t pdu_len,
-                     clip_u8 expected_sequence,
-                     const clip_u8 **data,
+                     j_u8 expected_sequence,
+                     const j_u8 **data,
                      size_t *data_len);
 
 /*
@@ -168,9 +168,9 @@ clip_cal_parse_reply(const clip_u8 *pdu,
  * preserved without assigning stronger semantics than the captures support.
  */
 int
-clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
+clip_cal_parse_memory_descriptor(const j_u8 *pdu,
                                  size_t pdu_len,
-                                 clip_u8 expected_sequence,
+                                 j_u8 expected_sequence,
                                  struct clip_cal_map *map);
 
 /*
@@ -179,58 +179,58 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
  * Reject short, mismatched-sequence or unexpected payloads.
  */
 int
-clip_cal_parse_lock_ack(const clip_u8 *pdu,
+clip_cal_parse_lock_ack(const j_u8 *pdu,
                         size_t pdu_len,
-                        clip_u8 expected_sequence);
+                        j_u8 expected_sequence);
 
 /* Experimental unlock-only parser: 01 <seq> FF FF means success;
  * 03 <seq> FF FC permits conditional continuation. Reject everything else. */
 int
-clip_cal_parse_unlock_ack(const clip_u8 *pdu,
+clip_cal_parse_unlock_ack(const j_u8 *pdu,
                           size_t pdu_len,
-                          clip_u8 expected_sequence);
+                          j_u8 expected_sequence);
 
 /* Build: 13 seq address[31:0] length[15:0]. */
 int
-clip_cal_build_read_request(clip_u8 sequence,
-                            clip_u32 address,
+clip_cal_build_read_request(j_u8 sequence,
+                            j_u32 address,
                             unsigned int length,
-                            clip_u8 out[CLIP_CAL_READ_REQUEST_SIZE]);
+                            j_u8 out[CLIP_CAL_READ_REQUEST_SIZE]);
 
 /*
  * Parse 01 seq data... for a memory read.  expected_length bytes are returned;
  * any trailing bytes are ignored so a short read can tolerate frame padding.
  */
 int
-clip_cal_parse_read_reply(const clip_u8 *pdu,
+clip_cal_parse_read_reply(const j_u8 *pdu,
                           size_t pdu_len,
-                          clip_u8 expected_sequence,
+                          j_u8 expected_sequence,
                           size_t expected_length,
-                          const clip_u8 **data);
+                          const j_u8 **data);
 
 /* Build: 15 seq 00 00 pointer_id[15:0]. */
 int
-clip_cal_build_pointer_request(clip_u8 sequence,
+clip_cal_build_pointer_request(j_u8 sequence,
                                unsigned int pointer_id,
-                               clip_u8 out[CLIP_CAL_PTR_REQUEST_SIZE]);
+                               j_u8 out[CLIP_CAL_PTR_REQUEST_SIZE]);
 
 /* Parse 01 seq address[31:0]. */
 int
-clip_cal_parse_pointer_reply(const clip_u8 *pdu,
+clip_cal_parse_pointer_reply(const j_u8 *pdu,
                              size_t pdu_len,
-                             clip_u8 expected_sequence,
-                             clip_u32 *address);
+                             j_u8 expected_sequence,
+                             j_u32 *address);
 
 /* Build the phase terminator observed in the recording: 1A 00 00 00. */
 void
-clip_cal_build_end_request(clip_u8 out[CLIP_CAL_END_REQUEST_SIZE]);
+clip_cal_build_end_request(j_u8 out[CLIP_CAL_END_REQUEST_SIZE]);
 
 /*
  * Application sequence numbers run 00..FE; FF is skipped in the capture.
  * Thus FE advances to 00.
  */
-clip_u8
-clip_cal_next_sequence(clip_u8 sequence);
+j_u8
+clip_cal_next_sequence(j_u8 sequence);
 
 /* Cursor helpers for walking every range in a parsed map. */
 void
@@ -239,9 +239,9 @@ clip_cal_cursor_init(struct clip_cal_cursor *cursor);
 int
 clip_cal_next_read(const struct clip_cal_map *map,
                    struct clip_cal_cursor *cursor,
-                   clip_u8 sequence,
+                   j_u8 sequence,
                    unsigned int max_chunk,
-                   clip_u8 out[CLIP_CAL_READ_REQUEST_SIZE],
+                   j_u8 out[CLIP_CAL_READ_REQUEST_SIZE],
                    struct clip_cal_read_info *info);
 
 /* Sum all declared range lengths; returns 0 on arithmetic overflow. */

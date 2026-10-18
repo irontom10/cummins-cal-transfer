@@ -15,6 +15,7 @@ add_library(caltransfer SHARED
     ../../core/echo_transfer.c
     ../../core/clip_crypto.c
     ../../core/clip_cal.c
+    ../../core/j_endian.c
     ../../core/xcal_crc.c
 )
 
