@@ -99,7 +99,7 @@ lld-link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS ^
     main.obj ^
     rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
     ct_platform.obj clip_transfer.obj echo_transfer.obj ^
-    clip_crypto.obj clip_cal.obj xcal_crc.obj config_store.obj ^
+    clip_crypto.obj clip_cal.obj j_endian.obj xcal_crc.obj config_store.obj ^
     kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
 if errorlevel 1 goto :fail_from_obj
 
