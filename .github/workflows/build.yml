@@ -43,6 +43,14 @@ jobs:
             tests/j_endian_test.c src/core/j_endian.c \
             -o build/tests/j_endian_test
 
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            tests/j_string_test.c src/core/j_string.c \
+            -o build/tests/j_string_test
+
+          cc -std=c89 -Wall -Wextra -Werror -pedantic -Isrc/core \
+            -c src/core/config_store.c -o build/tests/config_store.o
+
+          build/tests/j_string_test
           build/tests/j_endian_test
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test

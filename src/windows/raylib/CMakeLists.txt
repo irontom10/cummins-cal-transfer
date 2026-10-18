@@ -41,6 +41,7 @@ add_executable(CalibrationTransferRaylib WIN32
     "${CORE}/j_endian.c"
     "${CORE}/xcal_crc.c"
     "${CORE}/config_store.c"
+    "${CORE}/j_string.c"
 )
 set_target_properties(CalibrationTransferRaylib PROPERTIES
     C_STANDARD 90

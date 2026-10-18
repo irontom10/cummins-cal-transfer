@@ -10,6 +10,7 @@ add_library(caltransfer SHARED
 
     ../../core/ct_platform.c
     ../../core/config_store.c
+    ../../core/j_string.c
     ../../core/j1939_transport.c
     ../../core/clip_transfer.c
     ../../core/echo_transfer.c

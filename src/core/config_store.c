@@ -27,6 +27,7 @@
 
 #define CT_CONFIG_EXPORTS
 #include "config_store.h"
+#include "j_string.h"
 
 #define CT_PATH_CAP 4096
 #define CT_ERROR_CAP 512
@@ -45,34 +46,7 @@ static int g_loaded = 0;
 static void
 ct_set_error(const char *text)
 {
-    size_t n;
-
-    if (text == NULL)
-        text = "";
-
-    n = strlen(text);
-    if (n >= sizeof(g_last_error))
-        n = sizeof(g_last_error) - 1U;
-
-    if (n != 0U)
-        memcpy(g_last_error, text, n);
-    g_last_error[n] = '\0';
-}
-
-static char *
-ct_strdup(const char *text)
-{
-    size_t n;
-    char *copy;
-
-    if (text == NULL)
-        text = "";
-
-    n = strlen(text) + 1U;
-    copy = (char *)malloc(n);
-    if (copy != NULL)
-        memcpy(copy, text, n);
-    return copy;
+    (void)j_str_copy(g_last_error, sizeof(g_last_error), text);
 }
 
 static void
@@ -125,7 +99,7 @@ ct_store_insert(size_t index, const char *text)
     if (!ct_store_reserve(g_store.count + 1U))
         return 0;
 
-    copy = ct_strdup(text);
+    copy = j_strdup(text);
     if (copy == NULL)
         return 0;
 
@@ -154,7 +128,7 @@ ct_store_replace(size_t index, const char *text)
     if (index >= g_store.count)
         return 0;
 
-    copy = ct_strdup(text);
+    copy = j_strdup(text);
     if (copy == NULL)
         return 0;
 
@@ -217,70 +191,6 @@ ct_read_line(FILE *fp)
 
     buffer[length] = '\0';
     return buffer;
-}
-
-static char *
-ct_ltrim(char *text)
-{
-    while (*text != '\0' && isspace((unsigned char)*text))
-        ++text;
-    return text;
-}
-
-static void
-ct_rtrim(char *text)
-{
-    size_t n;
-
-    n = strlen(text);
-    while (n != 0U && isspace((unsigned char)text[n - 1U])) {
-        --n;
-        text[n] = '\0';
-    }
-}
-
-static int
-ct_copy_text(char *out, int out_size, const char *text)
-{
-    size_t n;
-
-    if (out == NULL || out_size <= 0)
-        return 0;
-
-    if (text == NULL)
-        text = "";
-
-    n = strlen(text);
-    if (n >= (size_t)out_size)
-        n = (size_t)out_size - 1U;
-
-    if (n != 0U)
-        memcpy(out, text, n);
-    out[n] = '\0';
-    return 1;
-}
-
-static int
-ct_ascii_stricmp(const char *a, const char *b)
-{
-    int ca;
-    int cb;
-
-    if (a == NULL)
-        a = "";
-    if (b == NULL)
-        b = "";
-
-    for (;;) {
-        ca = tolower((unsigned char)*a);
-        cb = tolower((unsigned char)*b);
-
-        if (ca != cb || ca == 0 || cb == 0)
-            return ca - cb;
-
-        ++a;
-        ++b;
-    }
 }
 
 #ifdef _WIN32
@@ -659,7 +569,7 @@ ct_find_key(const char *section,
             if (in_section && section_end != NULL)
                 *section_end = i;
 
-            ct_copy_text(current, (int)sizeof(current), parsed_section);
+            j_str_copy(current, sizeof(current), parsed_section);
             in_section = strcmp(current, section) == 0;
             if (in_section)
                 saw_section = 1;
@@ -1066,7 +976,7 @@ ct_config_get_string(const char *section,
     if (!g_loaded ||
         !ct_get_raw_internal(section, key, raw, sizeof(raw)) ||
         !ct_unescape_toml_string(raw, out, out_size)) {
-        ct_copy_text(out, out_size, default_value == NULL ? "" : default_value);
+        j_str_copy(out, out_size > 0 ? (size_t)out_size : 0U, default_value == NULL ? "" : default_value);
         return 0;
     }
 
@@ -1122,11 +1032,11 @@ ct_config_get_bool(const char *section,
         return 0;
     }
 
-    if (ct_ascii_stricmp(raw, "true") == 0) {
+    if (j_ascii_stricmp(raw, "true") == 0) {
         *out_value = 1;
         return 1;
     }
-    if (ct_ascii_stricmp(raw, "false") == 0) {
+    if (j_ascii_stricmp(raw, "false") == 0) {
         *out_value = 0;
         return 1;
     }
@@ -1355,11 +1265,11 @@ ct_config_get_path(char *out, int out_size)
     if (!g_loaded || g_path[0] == '\0')
         return 0;
 
-    return ct_copy_text(out, out_size, g_path);
+    return j_str_copy(out, out_size > 0 ? (size_t)out_size : 0U, g_path);
 }
 
 int CT_CONFIG_CALL
 ct_config_get_last_error(char *out, int out_size)
 {
-    return ct_copy_text(out, out_size, g_last_error);
+    return j_str_copy(out, out_size > 0 ? (size_t)out_size : 0U, g_last_error);
 }
