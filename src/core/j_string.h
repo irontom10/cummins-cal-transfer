@@ -26,6 +26,13 @@ char *j_strdup(const char *text);
 int j_str_copy(char *out, size_t capacity, const char *text);
 
 /*
+ * Strip leading and trailing ASCII whitespace in place.
+ * Whitespace is space, tab, carriage return, line feed, vertical tab,
+ * or form feed. NULL is ignored. Interior whitespace is unchanged.
+ */
+void j_str_trim(char *text);
+
+/*
  * Locale-independent, ASCII-only case-insensitive comparison.
  * NULL inputs are treated as empty strings. Non-ASCII bytes are
  * compared unchanged. Returns negative, zero, or positive like strcmp().

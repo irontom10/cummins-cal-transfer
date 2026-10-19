@@ -41,6 +41,30 @@ test_copy(void)
 }
 
 static void
+test_trim(void)
+{
+    char buffer[64];
+
+    strcpy(buffer, " \t\r\n\v\fhello\t world \t\r\n\v\f");
+    j_str_trim(buffer);
+    assert(strcmp(buffer, "hello\t world") == 0);
+
+    strcpy(buffer, "no change");
+    j_str_trim(buffer);
+    assert(strcmp(buffer, "no change") == 0);
+
+    strcpy(buffer, " \t\r\n\v\f");
+    j_str_trim(buffer);
+    assert(strcmp(buffer, "") == 0);
+
+    buffer[0] = '\0';
+    j_str_trim(buffer);
+    assert(strcmp(buffer, "") == 0);
+
+    j_str_trim(NULL);
+}
+
+static void
 test_ascii_comparison(void)
 {
     assert(j_ascii_stricmp("TRUE", "true") == 0);
@@ -58,6 +82,7 @@ main(void)
 {
     test_strdup();
     test_copy();
+    test_trim();
     test_ascii_comparison();
     puts("j_string tests passed");
     return 0;

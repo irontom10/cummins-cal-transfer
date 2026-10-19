@@ -48,7 +48,8 @@ Run the local protocol regression suite:
 mkdir -p build/tests
 cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
   tests/clip_cal_protocol_test.c src/core/clip_cal.c \
-  src/core/xcal_crc.c src/core/ct_platform.c \
+  src/core/j_endian.c src/core/xcal_crc.c \
+  src/core/j_string.c src/core/ct_platform.c \
   -o build/tests/clip_cal_protocol_test
 build/tests/clip_cal_protocol_test
 ```

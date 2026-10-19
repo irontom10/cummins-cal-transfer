@@ -43,6 +43,38 @@ j_str_copy(char *out, size_t capacity, const char *text)
     return 1;
 }
 
+static int
+j_ascii_isspace(unsigned int ch)
+{
+    return ch == 0x20U || ch == 0x09U ||
+           ch == 0x0DU || ch == 0x0AU ||
+           ch == 0x0BU || ch == 0x0CU;
+}
+
+void
+j_str_trim(char *text)
+{
+    char *first;
+    char *end;
+    size_t n;
+
+    if (text == NULL)
+        return;
+
+    first = text;
+    while (*first != '\0' && j_ascii_isspace((unsigned char)*first))
+        ++first;
+
+    end = first + strlen(first);
+    while (end > first && j_ascii_isspace((unsigned char)end[-1]))
+        --end;
+
+    n = (size_t)(end - first);
+    if (first != text && n != 0U)
+        memmove(text, first, n);
+    text[n] = '\0';
+}
+
 static unsigned int
 j_ascii_tolower(unsigned int ch)
 {

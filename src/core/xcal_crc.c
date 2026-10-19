@@ -1,4 +1,5 @@
 #include "xcal_crc.h"
+#include "j_string.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -103,36 +104,6 @@ static int parse_hex_u16(const char *hex_digits, unsigned short *value)
 
     *value = (unsigned short)result;
     return 1;
-}
-
-static int is_ascii_whitespace(unsigned char character)
-{
-    return character == ' '  || character == '\t' ||
-           character == '\r' || character == '\n' ||
-           character == '\v' || character == '\f';
-}
-
-/* Strip leading and trailing whitespace in place. */
-static void trim_ascii_whitespace(char *text)
-{
-    char *first_character;
-    char *end;
-
-    first_character = text;
-    while (*first_character != '\0' &&
-           is_ascii_whitespace((unsigned char)*first_character)) {
-        ++first_character;
-    }
-
-    if (first_character != text) {
-        memmove(text, first_character, strlen(first_character) + 1U);
-    }
-
-    end = text + strlen(text);
-    while (end > text && is_ascii_whitespace((unsigned char)end[-1])) {
-        --end;
-    }
-    *end = '\0';
 }
 
 static unsigned short swap_u16_bytes(unsigned short value)
@@ -251,7 +222,7 @@ static int calculate_file_crc(const char *filename,
         return 0;
     }
 
-    trim_ascii_whitespace(header_line);
+    j_str_trim(header_line);
     if (!parse_crc_header(header_line, header_format, stored_crc,
                           calculated_crc, header_suffix)) {
         fclose(input);
