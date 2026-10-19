@@ -125,6 +125,7 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATI
     "%SRC_CORE%\echo_transfer.c" ^
     "%SRC_CORE%\clip_crypto.c" ^
     "%SRC_CORE%\clip_cal.c" ^
+    "%SRC_CORE%\j_endian.c" ^
     "%SRC_CORE%\xcal_crc.c"
 if errorlevel 1 goto :fail_from_obj
 
@@ -133,7 +134,7 @@ link /nologo /DLL /MACHINE:X86 ^
     /OUT:"%NATIVE%\rp1210scan.dll" ^
     /IMPLIB:"%NATIVE%\rp1210scan.lib" ^
     /PDB:"%NATIVE%\rp1210scan.pdb" ^
-    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj xcal_crc.obj ^
+    rp1210scan.obj rp1210_transport.obj j1939_transport.obj ct_platform.obj clip_transfer.obj echo_transfer.obj clip_crypto.obj clip_cal.obj j_endian.obj xcal_crc.obj ^
     kernel32.lib user32.lib
 if errorlevel 1 goto :fail_from_obj
 
@@ -143,12 +144,17 @@ cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /I"%SRC_WIN_NATI
     "%SRC_CORE%\config_store.c"
 if errorlevel 1 goto :fail_from_obj
 
+cl /nologo /W3 /O2 /TC /D_CRT_SECURE_NO_WARNINGS /I"%SRC_CORE%" /c ^
+    /Fo:j_string.obj ^
+    "%SRC_CORE%\j_string.c"
+if errorlevel 1 goto :fail_from_obj
+
 link /nologo /DLL /MACHINE:X86 ^
     /DEF:"%SRC_WIN_NATIVE%\config_store.def" ^
     /OUT:"%NATIVE%\ctconfig.dll" ^
     /IMPLIB:"%NATIVE%\ctconfig.lib" ^
     /PDB:"%NATIVE%\ctconfig.pdb" ^
-    config_store.obj kernel32.lib
+    config_store.obj j_string.obj kernel32.lib
 if errorlevel 1 goto :fail_from_obj
 
 echo [3/4] Building CRC utility...
@@ -194,8 +200,10 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_CORE%\echo_transfer.c" ^
         "%SRC_CORE%\clip_crypto.c" ^
         "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\j_endian.c" ^
         "%SRC_CORE%\xcal_crc.c" ^
         "%SRC_CORE%\config_store.c" ^
+        "%SRC_CORE%\j_string.c" ^
         "%SRC_WIN_API%\main.c"
         if errorlevel 1 goto :fail_from_obj
     ) else (
@@ -210,8 +218,10 @@ if "%NATIVE_UI%"=="1" (
         "%SRC_CORE%\echo_transfer.c" ^
         "%SRC_CORE%\clip_crypto.c" ^
         "%SRC_CORE%\clip_cal.c" ^
+        "%SRC_CORE%\j_endian.c" ^
         "%SRC_CORE%\xcal_crc.c" ^
         "%SRC_CORE%\config_store.c" ^
+        "%SRC_CORE%\j_string.c" ^
         "%SRC_WIN_API%\main.c"
         if errorlevel 1 goto :fail_from_obj
     )
@@ -238,7 +248,7 @@ if "%NATIVE_UI%"=="1" (
         main.obj %WINAPI_RESOURCE% ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
-        clip_crypto.obj clip_cal.obj xcal_crc.obj config_store.obj ^
+        clip_crypto.obj clip_cal.obj j_endian.obj xcal_crc.obj config_store.obj j_string.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
         if errorlevel 1 goto :fail_from_obj
     ) else (
@@ -248,7 +258,7 @@ if "%NATIVE_UI%"=="1" (
         main.obj %WINAPI_RESOURCE% ^
         rp1210scan.obj rp1210_transport.obj j1939_transport.obj ^
         ct_platform.obj clip_transfer.obj echo_transfer.obj ^
-        clip_crypto.obj clip_cal.obj xcal_crc.obj config_store.obj ^
+        clip_crypto.obj clip_cal.obj j_endian.obj xcal_crc.obj config_store.obj j_string.obj ^
         kernel32.lib user32.lib gdi32.lib comctl32.lib comdlg32.lib
         if errorlevel 1 goto :fail_from_obj
     )

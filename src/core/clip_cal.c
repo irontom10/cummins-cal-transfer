@@ -7,6 +7,7 @@
  */
 
 #include "clip_cal.h"
+#include "j_endian.h"
 #include "xcal_crc.h"
 #include "ct_platform.h"
 #include <stdio.h>
@@ -14,61 +15,11 @@
 #include <string.h>
 #include <limits.h>
 
-static clip_u32
-clip_cal_load_be32(const clip_u8 *p)
-{
-    clip_u32 v;
-
-    v = ((clip_u32)p[0] << 24);
-    v |= ((clip_u32)p[1] << 16);
-    v |= ((clip_u32)p[2] << 8);
-    v |= (clip_u32)p[3];
-    return v;
-}
-
-static unsigned int
-clip_cal_load_be16(const clip_u8 *p)
-{
-    unsigned int v;
-
-    v = ((unsigned int)p[0] << 8);
-    v |= (unsigned int)p[1];
-    return v;
-}
-
-static clip_u32
-clip_cal_load_be_width(const clip_u8 *p, unsigned int width)
-{
-    clip_u32 v;
-    unsigned int i;
-
-    v = (clip_u32)0;
-    for (i = 0U; i < width; ++i)
-        v = (v << 8) | (clip_u32)p[i];
-    return v;
-}
-
-static void
-clip_cal_store_be32(clip_u8 *p, clip_u32 v)
-{
-    p[0] = (clip_u8)(v >> 24);
-    p[1] = (clip_u8)(v >> 16);
-    p[2] = (clip_u8)(v >> 8);
-    p[3] = (clip_u8)v;
-}
-
-static void
-clip_cal_store_be16(clip_u8 *p, unsigned int v)
-{
-    p[0] = (clip_u8)((v >> 8) & 0xffU);
-    p[1] = (clip_u8)(v & 0xffU);
-}
-
 int
-clip_cal_build_mode_request(clip_u8 sequence,
+clip_cal_build_mode_request(j_u8 sequence,
                             unsigned int mode,
-                            clip_u8 value,
-                            clip_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE])
+                            j_u8 value,
+                            j_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE])
 {
     if (out == NULL)
         return CLIP_CAL_ERR_ARGUMENT;
@@ -77,24 +28,24 @@ clip_cal_build_mode_request(clip_u8 sequence,
 
     out[0] = CLIP_CAL_SERVICE_PHASE;
     out[1] = sequence;
-    out[2] = (clip_u8)((mode >> 8) & 0xffU);
-    out[3] = (clip_u8)(mode & 0xffU);
+    out[2] = (j_u8)((mode >> 8) & 0xffU);
+    out[3] = (j_u8)(mode & 0xffU);
     out[4] = value;
     return CLIP_CAL_OK;
 }
 
 int
-clip_cal_build_phase_request(clip_u8 sequence,
-                             clip_u8 phase,
-                             clip_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE])
+clip_cal_build_phase_request(j_u8 sequence,
+                             j_u8 phase,
+                             j_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE])
 {
     return clip_cal_build_mode_request(sequence, 0x0011U, phase, out);
 }
 
 int
-clip_cal_build_query_request(clip_u8 sequence,
+clip_cal_build_query_request(j_u8 sequence,
                              unsigned long identifier,
-                             clip_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE])
+                             j_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE])
 {
     if (out == NULL)
         return CLIP_CAL_ERR_ARGUMENT;
@@ -106,17 +57,17 @@ clip_cal_build_query_request(clip_u8 sequence,
     out[1] = sequence;
     out[2] = 0x01U;
     out[3] = 0x01U;
-    out[4] = (clip_u8)((identifier >> 16) & 0xffUL);
-    out[5] = (clip_u8)((identifier >> 8) & 0xffUL);
-    out[6] = (clip_u8)(identifier & 0xffUL);
+    out[4] = (j_u8)((identifier >> 16) & 0xffUL);
+    out[5] = (j_u8)((identifier >> 8) & 0xffUL);
+    out[6] = (j_u8)(identifier & 0xffUL);
     return CLIP_CAL_OK;
 }
 
 int
-clip_cal_parse_reply(const clip_u8 *pdu,
+clip_cal_parse_reply(const j_u8 *pdu,
                      size_t pdu_len,
-                     clip_u8 expected_sequence,
-                     const clip_u8 **data,
+                     j_u8 expected_sequence,
+                     const j_u8 **data,
                      size_t *data_len)
 {
     if (pdu == NULL || data == NULL || data_len == NULL)
@@ -142,11 +93,11 @@ clip_cal_parse_reply(const clip_u8 *pdu,
  * a positive service byte, before treating a lock change as confirmed.
  */
 int
-clip_cal_parse_lock_ack(const clip_u8 *pdu,
+clip_cal_parse_lock_ack(const j_u8 *pdu,
                         size_t pdu_len,
-                        clip_u8 expected_sequence)
+                        j_u8 expected_sequence)
 {
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
     int rc;
 
@@ -168,9 +119,9 @@ clip_cal_parse_lock_ack(const clip_u8 *pdu,
  * loader. Never accept other negative replies or use this for re-lock.
  */
 int
-clip_cal_parse_unlock_ack(const clip_u8 *pdu,
+clip_cal_parse_unlock_ack(const j_u8 *pdu,
                           size_t pdu_len,
-                          clip_u8 expected_sequence)
+                          j_u8 expected_sequence)
 {
     if (pdu == NULL)
         return CLIP_CAL_ERR_ARGUMENT;
@@ -188,12 +139,12 @@ clip_cal_parse_unlock_ack(const clip_u8 *pdu,
 }
 
 int
-clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
+clip_cal_parse_memory_descriptor(const j_u8 *pdu,
                                  size_t pdu_len,
-                                 clip_u8 expected_sequence,
+                                 j_u8 expected_sequence,
                                  struct clip_cal_map *map)
 {
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
     size_t offset;
     size_t bytes;
@@ -245,9 +196,9 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     memset(map, 0, sizeof(*map));
 
-    map->descriptor_value = clip_cal_load_be32(data);
-    count = clip_cal_load_be16(data + 4U);
-    address_width = clip_cal_load_be16(data + 6U);
+    map->descriptor_value = j_load_be32(data);
+    count = j_load_be16(data + 4U);
+    address_width = j_load_be16(data + 6U);
 
     if (count == 0U || count > CLIP_CAL_MAX_RANGES)
         return CLIP_CAL_ERR_RANGE_COUNT;
@@ -261,7 +212,7 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     for (i = 0U; i < count; ++i) {
         map->ranges[i].address =
-            clip_cal_load_be_width(data + offset +
+            j_load_be_width(data + offset +
                                    ((size_t)i * address_width),
                                    address_width);
     }
@@ -269,7 +220,7 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     if (data_len - offset < 2U)
         return CLIP_CAL_ERR_FORMAT;
-    auxiliary_width = clip_cal_load_be16(data + offset);
+    auxiliary_width = j_load_be16(data + offset);
     offset += 2U;
 
     if (auxiliary_width == 0U || auxiliary_width > 4U)
@@ -281,7 +232,7 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     for (i = 0U; i < count; ++i) {
         map->ranges[i].auxiliary =
-            clip_cal_load_be_width(data + offset +
+            j_load_be_width(data + offset +
                                    ((size_t)i * auxiliary_width),
                                    auxiliary_width);
     }
@@ -289,7 +240,7 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     if (data_len - offset < 2U)
         return CLIP_CAL_ERR_FORMAT;
-    length_width = clip_cal_load_be16(data + offset);
+    length_width = j_load_be16(data + offset);
     offset += 2U;
 
     if (length_width == 0U || length_width > 4U)
@@ -301,15 +252,15 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 
     for (i = 0U; i < count; ++i) {
         map->ranges[i].length =
-            clip_cal_load_be_width(data + offset +
+            j_load_be_width(data + offset +
                                    ((size_t)i * length_width),
                                    length_width);
 
-        if (map->ranges[i].length == (clip_u32)0)
+        if (map->ranges[i].length == (j_u32)0)
             return CLIP_CAL_ERR_FORMAT;
 
         if (map->ranges[i].address >
-            (clip_u32)0xffffffffUL - map->ranges[i].length)
+            (j_u32)0xffffffffUL - map->ranges[i].length)
             return CLIP_CAL_ERR_LENGTH;
     }
     offset += bytes;
@@ -332,10 +283,10 @@ clip_cal_parse_memory_descriptor(const clip_u8 *pdu,
 }
 
 int
-clip_cal_build_read_request(clip_u8 sequence,
-                            clip_u32 address,
+clip_cal_build_read_request(j_u8 sequence,
+                            j_u32 address,
                             unsigned int length,
-                            clip_u8 out[CLIP_CAL_READ_REQUEST_SIZE])
+                            j_u8 out[CLIP_CAL_READ_REQUEST_SIZE])
 {
     if (out == NULL)
         return CLIP_CAL_ERR_ARGUMENT;
@@ -345,19 +296,19 @@ clip_cal_build_read_request(clip_u8 sequence,
 
     out[0] = CLIP_CAL_SERVICE_READ_MEMORY;
     out[1] = sequence;
-    clip_cal_store_be32(out + 2U, address);
-    clip_cal_store_be16(out + 6U, length);
+    j_store_be32(out + 2U, address);
+    j_store_be16(out + 6U, length);
     return CLIP_CAL_OK;
 }
 
 int
-clip_cal_parse_read_reply(const clip_u8 *pdu,
+clip_cal_parse_read_reply(const j_u8 *pdu,
                           size_t pdu_len,
-                          clip_u8 expected_sequence,
+                          j_u8 expected_sequence,
                           size_t expected_length,
-                          const clip_u8 **data)
+                          const j_u8 **data)
 {
-    const clip_u8 *reply_data;
+    const j_u8 *reply_data;
     size_t reply_len;
     int rc;
 
@@ -380,9 +331,9 @@ clip_cal_parse_read_reply(const clip_u8 *pdu,
 }
 
 int
-clip_cal_build_pointer_request(clip_u8 sequence,
+clip_cal_build_pointer_request(j_u8 sequence,
                                unsigned int pointer_id,
-                               clip_u8 out[CLIP_CAL_PTR_REQUEST_SIZE])
+                               j_u8 out[CLIP_CAL_PTR_REQUEST_SIZE])
 {
     if (out == NULL)
         return CLIP_CAL_ERR_ARGUMENT;
@@ -394,17 +345,17 @@ clip_cal_build_pointer_request(clip_u8 sequence,
     out[1] = sequence;
     out[2] = 0x00U;
     out[3] = 0x00U;
-    clip_cal_store_be16(out + 4U, pointer_id);
+    j_store_be16(out + 4U, pointer_id);
     return CLIP_CAL_OK;
 }
 
 int
-clip_cal_parse_pointer_reply(const clip_u8 *pdu,
+clip_cal_parse_pointer_reply(const j_u8 *pdu,
                              size_t pdu_len,
-                             clip_u8 expected_sequence,
-                             clip_u32 *address)
+                             j_u8 expected_sequence,
+                             j_u32 *address)
 {
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
     int rc;
 
@@ -422,12 +373,12 @@ clip_cal_parse_pointer_reply(const clip_u8 *pdu,
     if (data_len < 4U)
         return CLIP_CAL_ERR_FORMAT;
 
-    *address = clip_cal_load_be32(data);
+    *address = j_load_be32(data);
     return CLIP_CAL_OK;
 }
 
 void
-clip_cal_build_end_request(clip_u8 out[CLIP_CAL_END_REQUEST_SIZE])
+clip_cal_build_end_request(j_u8 out[CLIP_CAL_END_REQUEST_SIZE])
 {
     if (out == NULL)
         return;
@@ -438,13 +389,13 @@ clip_cal_build_end_request(clip_u8 out[CLIP_CAL_END_REQUEST_SIZE])
     out[3] = 0x00U;
 }
 
-clip_u8
-clip_cal_next_sequence(clip_u8 sequence)
+j_u8
+clip_cal_next_sequence(j_u8 sequence)
 {
     if (sequence >= 0xfeU)
         return 0x00U;
 
-    return (clip_u8)(sequence + 1U);
+    return (j_u8)(sequence + 1U);
 }
 
 void
@@ -454,20 +405,20 @@ clip_cal_cursor_init(struct clip_cal_cursor *cursor)
         return;
 
     cursor->range_index = 0U;
-    cursor->range_offset = (clip_u32)0;
+    cursor->range_offset = (j_u32)0;
 }
 
 int
 clip_cal_next_read(const struct clip_cal_map *map,
                    struct clip_cal_cursor *cursor,
-                   clip_u8 sequence,
+                   j_u8 sequence,
                    unsigned int max_chunk,
-                   clip_u8 out[CLIP_CAL_READ_REQUEST_SIZE],
+                   j_u8 out[CLIP_CAL_READ_REQUEST_SIZE],
                    struct clip_cal_read_info *info)
 {
     const struct clip_cal_range *range;
-    clip_u32 remaining;
-    clip_u32 address;
+    j_u32 remaining;
+    j_u32 address;
     unsigned int chunk;
     int rc;
 
@@ -484,7 +435,7 @@ clip_cal_next_read(const struct clip_cal_map *map,
             break;
 
         cursor->range_index++;
-        cursor->range_offset = (clip_u32)0;
+        cursor->range_offset = (j_u32)0;
     }
 
     if (cursor->range_index >= map->range_count)
@@ -494,7 +445,7 @@ clip_cal_next_read(const struct clip_cal_map *map,
     remaining = range->length - cursor->range_offset;
 
     chunk = max_chunk;
-    if ((clip_u32)chunk > remaining)
+    if ((j_u32)chunk > remaining)
         chunk = (unsigned int)remaining;
 
     address = range->address + cursor->range_offset;
@@ -507,7 +458,7 @@ clip_cal_next_read(const struct clip_cal_map *map,
     info->address = address;
     info->length = chunk;
 
-    cursor->range_offset += (clip_u32)chunk;
+    cursor->range_offset += (j_u32)chunk;
     return 1;
 }
 

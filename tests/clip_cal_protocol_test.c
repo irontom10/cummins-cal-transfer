@@ -8,8 +8,8 @@
 static void
 test_mode_request(void)
 {
-    clip_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE];
-    static const clip_u8 expected[CLIP_CAL_PHASE_REQUEST_SIZE] = {
+    j_u8 out[CLIP_CAL_PHASE_REQUEST_SIZE];
+    static const j_u8 expected[CLIP_CAL_PHASE_REQUEST_SIZE] = {
         0x12U, 0x7eU, 0x00U, 0x17U, 0x00U
     };
 
@@ -28,13 +28,13 @@ test_mode_request(void)
 static void
 test_calibration_lock_modes(void)
 {
-    clip_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
-    clip_u8 reply[4];
-    const clip_u8 *data;
+    j_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    j_u8 reply[4];
+    const j_u8 *data;
     size_t data_len;
     unsigned int i;
-    static const clip_u8 sequences[3] = {0x90U, 0x97U, 0x9eU};
-    static const clip_u8 values[3] = {0x00U, 0x01U, 0x00U};
+    static const j_u8 sequences[3] = {0x90U, 0x97U, 0x9eU};
+    static const j_u8 values[3] = {0x00U, 0x01U, 0x00U};
 
     for (i = 0U; i < 3U; ++i) {
         assert(clip_cal_build_mode_request(
@@ -57,7 +57,7 @@ test_calibration_lock_modes(void)
         assert(clip_cal_parse_lock_ack(
             reply, sizeof(reply), sequences[i]) == CLIP_CAL_OK);
         assert(clip_cal_parse_lock_ack(
-            reply, sizeof(reply), (clip_u8)(sequences[i] + 1U))
+            reply, sizeof(reply), (j_u8)(sequences[i] + 1U))
             == CLIP_CAL_ERR_SEQUENCE);
         reply[3] = 0x00U;
         assert(clip_cal_parse_lock_ack(
@@ -76,10 +76,10 @@ test_calibration_lock_modes(void)
 static void
 test_experimental_already_unlocked_reply(void)
 {
-    clip_u8 unlock_reply[4] = {0x03U, 0x16U, 0xffU, 0xfcU};
-    clip_u8 lock_reply[4]   = {0x03U, 0x17U, 0xffU, 0xfcU};
-    clip_u8 unlock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
-    clip_u8 lock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    j_u8 unlock_reply[4] = {0x03U, 0x16U, 0xffU, 0xfcU};
+    j_u8 lock_reply[4]   = {0x03U, 0x17U, 0xffU, 0xfcU};
+    j_u8 unlock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    j_u8 lock_request[CLIP_CAL_PHASE_REQUEST_SIZE];
 
     assert(clip_cal_build_mode_request(0x16U, 0x0018U, 0x00U,
                                        unlock_request) == CLIP_CAL_OK);
@@ -123,8 +123,8 @@ test_experimental_already_unlocked_reply(void)
 static void
 test_query_request(void)
 {
-    clip_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE];
-    static const clip_u8 expected[CLIP_CAL_QUERY_REQUEST_SIZE] = {
+    j_u8 out[CLIP_CAL_QUERY_REQUEST_SIZE];
+    static const j_u8 expected[CLIP_CAL_QUERY_REQUEST_SIZE] = {
         0x10U, 0x22U, 0x01U, 0x01U, 0x00U, 0xb8U, 0x25U
     };
 
@@ -136,13 +136,13 @@ test_query_request(void)
 static void
 test_read_request(void)
 {
-    clip_u8 out[CLIP_CAL_READ_REQUEST_SIZE];
-    static const clip_u8 expected[CLIP_CAL_READ_REQUEST_SIZE] = {
+    j_u8 out[CLIP_CAL_READ_REQUEST_SIZE];
+    static const j_u8 expected[CLIP_CAL_READ_REQUEST_SIZE] = {
         0x13U, 0x33U, 0x12U, 0x34U, 0x56U, 0x78U, 0x03U, 0xe8U
     };
 
     assert(clip_cal_build_read_request(
-               0x33U, (clip_u32)0x12345678UL, 1000U, out) ==
+               0x33U, (j_u32)0x12345678UL, 1000U, out) ==
            CLIP_CAL_OK);
     assert(memcmp(out, expected, sizeof(expected)) == 0);
 }
@@ -155,7 +155,7 @@ test_memory_descriptor(void)
      * It proves the second 16-bit field is an element width, not a duplicate
      * range count: range_count=5 while all three array widths are 4 bytes.
      */
-    static const clip_u8 reply[] = {
+    static const j_u8 reply[] = {
         0x01U, 0x17U,
         0x00U, 0x46U, 0x06U, 0x72U,
         0x00U, 0x05U,
@@ -187,28 +187,28 @@ test_memory_descriptor(void)
     assert(clip_cal_parse_memory_descriptor(
                reply, sizeof(reply), 0x17U, &map) == CLIP_CAL_OK);
 
-    assert(map.descriptor_value == (clip_u32)0x00460672UL);
+    assert(map.descriptor_value == (j_u32)0x00460672UL);
     assert(map.range_count == 5U);
 
-    assert(map.ranges[0].address == (clip_u32)0x00010000UL);
-    assert(map.ranges[0].auxiliary == (clip_u32)0x00060000UL);
-    assert(map.ranges[0].length == (clip_u32)0x000511f8UL);
+    assert(map.ranges[0].address == (j_u32)0x00010000UL);
+    assert(map.ranges[0].auxiliary == (j_u32)0x00060000UL);
+    assert(map.ranges[0].length == (j_u32)0x000511f8UL);
 
-    assert(map.ranges[1].address == (clip_u32)0x00500000UL);
-    assert(map.ranges[1].auxiliary == (clip_u32)0x000f0000UL);
-    assert(map.ranges[1].length == (clip_u32)0x000d4ca4UL);
+    assert(map.ranges[1].address == (j_u32)0x00500000UL);
+    assert(map.ranges[1].auxiliary == (j_u32)0x000f0000UL);
+    assert(map.ranges[1].length == (j_u32)0x000d4ca4UL);
 
-    assert(map.ranges[2].address == (clip_u32)0x00600000UL);
-    assert(map.ranges[2].auxiliary == (clip_u32)0x00004930UL);
-    assert(map.ranges[2].length == (clip_u32)0x00004930UL);
+    assert(map.ranges[2].address == (j_u32)0x00600000UL);
+    assert(map.ranges[2].auxiliary == (j_u32)0x00004930UL);
+    assert(map.ranges[2].length == (j_u32)0x00004930UL);
 
-    assert(map.ranges[3].address == (clip_u32)0x00640000UL);
-    assert(map.ranges[3].auxiliary == (clip_u32)0x000c0000UL);
-    assert(map.ranges[3].length == (clip_u32)0x00076e30UL);
+    assert(map.ranges[3].address == (j_u32)0x00640000UL);
+    assert(map.ranges[3].auxiliary == (j_u32)0x000c0000UL);
+    assert(map.ranges[3].length == (j_u32)0x00076e30UL);
 
-    assert(map.ranges[4].address == (clip_u32)0x01000280UL);
-    assert(map.ranges[4].auxiliary == (clip_u32)0x00001d7fUL);
-    assert(map.ranges[4].length == (clip_u32)0x00000ba4UL);
+    assert(map.ranges[4].address == (j_u32)0x01000280UL);
+    assert(map.ranges[4].auxiliary == (j_u32)0x00001d7fUL);
+    assert(map.ranges[4].length == (j_u32)0x00000ba4UL);
 
     assert(map.trailer_len == 0U);
 }
@@ -221,7 +221,7 @@ test_memory_descriptor_corpus_shapes(void)
      * These cover every range-count/width shape measured in that scan:
      * 3/4/4/4, 4/4/4/4, and 5/4/4/4.
      */
-    static const clip_u8 reply3[] = {
+    static const j_u8 reply3[] = {
         0x01U, 0x00U,
         0x00U, 0x2eU, 0x06U, 0xd6U,
         0x00U, 0x03U, 0x00U, 0x04U,
@@ -237,7 +237,7 @@ test_memory_descriptor_corpus_shapes(void)
         0x00U, 0x00U, 0x55U, 0xb0U,
         0x00U, 0x1aU, 0xbfU, 0xd8U
     };
-    static const clip_u8 reply4[] = {
+    static const j_u8 reply4[] = {
         0x01U, 0x00U,
         0x00U, 0x3aU, 0x06U, 0xd6U,
         0x00U, 0x04U, 0x00U, 0x04U,
@@ -256,7 +256,7 @@ test_memory_descriptor_corpus_shapes(void)
         0x00U, 0x00U, 0xb6U, 0x50U,
         0x00U, 0x09U, 0x02U, 0x38U
     };
-    static const clip_u8 reply5[] = {
+    static const j_u8 reply5[] = {
         0x01U, 0x00U,
         0x00U, 0x46U, 0x00U, 0xf0U,
         0x00U, 0x05U, 0x00U, 0x04U,
@@ -283,29 +283,29 @@ test_memory_descriptor_corpus_shapes(void)
     memset(&map, 0, sizeof(map));
     assert(clip_cal_parse_memory_descriptor(
                reply3, sizeof(reply3), 0x00U, &map) == CLIP_CAL_OK);
-    assert(map.descriptor_value == (clip_u32)0x002e06d6UL);
+    assert(map.descriptor_value == (j_u32)0x002e06d6UL);
     assert(map.range_count == 3U);
-    assert(map.ranges[0].address == (clip_u32)0x00001080UL);
-    assert(map.ranges[2].address == (clip_u32)0x00040000UL);
-    assert(map.ranges[2].length == (clip_u32)0x001abfd8UL);
+    assert(map.ranges[0].address == (j_u32)0x00001080UL);
+    assert(map.ranges[2].address == (j_u32)0x00040000UL);
+    assert(map.ranges[2].length == (j_u32)0x001abfd8UL);
 
     memset(&map, 0, sizeof(map));
     assert(clip_cal_parse_memory_descriptor(
                reply4, sizeof(reply4), 0x00U, &map) == CLIP_CAL_OK);
-    assert(map.descriptor_value == (clip_u32)0x003a06d6UL);
+    assert(map.descriptor_value == (j_u32)0x003a06d6UL);
     assert(map.range_count == 4U);
-    assert(map.ranges[0].address == (clip_u32)0x00a00000UL);
-    assert(map.ranges[3].address == (clip_u32)0x00100000UL);
-    assert(map.ranges[3].length == (clip_u32)0x00090238UL);
+    assert(map.ranges[0].address == (j_u32)0x00a00000UL);
+    assert(map.ranges[3].address == (j_u32)0x00100000UL);
+    assert(map.ranges[3].length == (j_u32)0x00090238UL);
 
     memset(&map, 0, sizeof(map));
     assert(clip_cal_parse_memory_descriptor(
                reply5, sizeof(reply5), 0x00U, &map) == CLIP_CAL_OK);
-    assert(map.descriptor_value == (clip_u32)0x004600f0UL);
+    assert(map.descriptor_value == (j_u32)0x004600f0UL);
     assert(map.range_count == 5U);
-    assert(map.ranges[0].address == (clip_u32)0x00010000UL);
-    assert(map.ranges[4].address == (clip_u32)0x01000100UL);
-    assert(map.ranges[4].length == (clip_u32)0x0000152aUL);
+    assert(map.ranges[0].address == (j_u32)0x00010000UL);
+    assert(map.ranges[4].address == (j_u32)0x01000100UL);
+    assert(map.ranges[4].length == (j_u32)0x0000152aUL);
 }
 
 static void
@@ -316,7 +316,7 @@ test_memory_descriptor_auxiliary_is_opaque(void)
      * smaller than length.  This synthetic vector makes that relationship
      * explicit so it cannot accidentally become a validation rule later.
      */
-    static const clip_u8 reply[] = {
+    static const j_u8 reply[] = {
         0x01U, 0x55U,
         0x00U, 0x2eU, 0x06U, 0xd6U,
         0x00U, 0x03U, 0x00U, 0x04U,

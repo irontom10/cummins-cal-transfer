@@ -18,6 +18,7 @@
 #include "echo_transfer.h"
 #include "clip_crypto.h"
 #include "clip_cal.h"
+#include "j_endian.h"
 #include "xcal_crc.h"
 #include "ct_platform.h"
 
@@ -75,20 +76,20 @@
 #define CLIP_DEFAULT_PASSWORD_TYPE      1U
 #define CLIP_DEFAULT_TOOL_FAMILY        0U
 #define CLIP_DEFAULT_TOOL_ID            0x000aUL
-#define CLIP_DEFAULT_TOOL_VERSION       ((clip_u32)0x03060403UL)
+#define CLIP_DEFAULT_TOOL_VERSION       ((j_u32)0x03060403UL)
 
-static const clip_u8 g_default_password[6] = {
+static const j_u8 g_default_password[6] = {
     'A', 'B', 'C', 'D', 'E', 'F'
 };
 
-static const clip_u8 g_default_tool_instance[6] = {
+static const j_u8 g_default_tool_instance[6] = {
     0x00U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U
 };
 
 struct pull_range_image {
-    clip_u32 address;
-    clip_u32 length;
-    clip_u8 *data;
+    j_u32 address;
+    j_u32 length;
+    j_u8 *data;
 };
 
 struct pull_image {
@@ -113,7 +114,7 @@ struct pull_meta {
 
 struct pull_ctx {
     struct j1939_transport *transport;
-    clip_u8 session_id;
+    j_u8 session_id;
     unsigned int wire_slot;
     int tolerate_negative;
     RP1210_PROGRESS_CALLBACK progress;
@@ -165,7 +166,7 @@ clear_last_error(void)
 }
 
 static void
-set_clip_negative_error(const clip_u8 *app, size_t app_len)
+set_clip_negative_error(const j_u8 *app, size_t app_len)
 {
     char tmp[512];
     char byte_text[8];
@@ -264,8 +265,8 @@ open_j1939_transport(struct pull_ctx *ctx,
                       const char *api_name,
                       int device_id,
                       int baud,
-                      clip_u8 tool_sa,
-                      clip_u8 ecm_sa)
+                      j_u8 tool_sa,
+                      j_u8 ecm_sa)
 {
     int rc;
 
@@ -304,7 +305,7 @@ close_j1939_transport(struct pull_ctx *ctx)
 
 static int
 j1939_send_payload(struct pull_ctx *ctx,
-                   const clip_u8 *payload,
+                   const j_u8 *payload,
                    size_t payload_len)
 {
     int rc;
@@ -320,7 +321,7 @@ j1939_send_payload(struct pull_ctx *ctx,
 
 static int
 j1939_read_payload(struct pull_ctx *ctx,
-                   clip_u8 *payload,
+                   j_u8 *payload,
                    size_t payload_capacity,
                    size_t *payload_len,
                    unsigned long timeout_ms)
@@ -348,7 +349,7 @@ echo_send_adapter(void *user,
 
     ctx = (struct pull_ctx *)user;
     rc = j1939_send_payload(ctx,
-                            (const clip_u8 *)data,
+                            (const j_u8 *)data,
                             (size_t)length);
     return rc == PULL_OK ? 0 : rc;
 }
@@ -370,7 +371,7 @@ echo_recv_adapter(void *user,
     ctx = (struct pull_ctx *)user;
     n = 0U;
     rc = j1939_read_payload(ctx,
-                            (clip_u8 *)data,
+                            (j_u8 *)data,
                             (size_t)capacity,
                             &n,
                             timeout_ms);
@@ -428,17 +429,17 @@ map_echo_result(int echo_rc)
     }
 }
 
-static clip_u8
+static j_u8
 wire_class_for_slot(unsigned int slot)
 {
-    return (clip_u8)(0x03U | ((slot & 7U) << 5));
+    return (j_u8)(0x03U | ((slot & 7U) << 5));
 }
 
 static int
 clip_send_open(struct pull_ctx *ctx)
 {
-    clip_u8 request[9];
-    clip_u8 reply[CLIP_WIRE_MAX];
+    j_u8 request[9];
+    j_u8 reply[CLIP_WIRE_MAX];
     size_t reply_len;
     int rc;
 
@@ -494,7 +495,7 @@ clip_send_open(struct pull_ctx *ctx)
 static int
 clip_send_close(struct pull_ctx *ctx)
 {
-    clip_u8 request[9];
+    j_u8 request[9];
 
     if (ctx == NULL)
         return PULL_ERR_ARGUMENT;
@@ -514,22 +515,22 @@ clip_send_close(struct pull_ctx *ctx)
 
 static int
 clip_exchange(struct pull_ctx *ctx,
-              clip_u8 session_id,
-              const clip_u8 *app,
+              j_u8 session_id,
+              const j_u8 *app,
               size_t app_len,
-              clip_u8 expected0,
-              clip_u8 expected1,
+              j_u8 expected0,
+              j_u8 expected1,
               int check_expected1,
-              clip_u8 *reply_app,
+              j_u8 *reply_app,
               size_t reply_capacity,
               size_t *reply_len,
               unsigned long timeout_ms)
 {
-    clip_u8 wire[CLIP_WIRE_MAX];
-    clip_u8 incoming[CLIP_WIRE_MAX];
+    j_u8 wire[CLIP_WIRE_MAX];
+    j_u8 incoming[CLIP_WIRE_MAX];
     size_t incoming_len;
     size_t n_app;
-    clip_u8 cls;
+    j_u8 cls;
     int rc;
 
     if (ctx == NULL || app == NULL || reply_app == NULL || reply_len == NULL)
@@ -684,12 +685,12 @@ clip_exchange(struct pull_ctx *ctx,
 
 static int
 clip_send_only(struct pull_ctx *ctx,
-               clip_u8 session_id,
-               const clip_u8 *app,
+               j_u8 session_id,
+               const j_u8 *app,
                size_t app_len)
 {
-    clip_u8 wire[CLIP_WIRE_MAX];
-    clip_u8 cls;
+    j_u8 wire[CLIP_WIRE_MAX];
+    j_u8 cls;
     int rc;
 
     if (ctx == NULL || app == NULL)
@@ -713,14 +714,14 @@ clip_send_only(struct pull_ctx *ctx,
 static int
 clip_authenticate(struct pull_ctx *ctx)
 {
-    clip_u8 seed_request[CLIP_SEED_REQUEST_SIZE];
-    clip_u8 seed_reply_pdu[128];
+    j_u8 seed_request[CLIP_SEED_REQUEST_SIZE];
+    j_u8 seed_reply_pdu[128];
     size_t seed_reply_len;
     struct clip_seed_reply seed_reply;
-    clip_u8 tool_context[CLIP_TOOL_CONTEXT_SIZE];
-    clip_u8 context_request[128];
+    j_u8 tool_context[CLIP_TOOL_CONTEXT_SIZE];
+    j_u8 context_request[128];
     size_t context_request_len;
-    clip_u8 context_reply[256];
+    j_u8 context_reply[256];
     size_t context_reply_len;
     int rc;
 
@@ -805,7 +806,7 @@ clip_authenticate(struct pull_ctx *ctx)
      * used by the first guaranteed data request.
      */
     {
-        clip_u8 remote_context[512];
+        j_u8 remote_context[512];
         size_t remote_context_len;
 
         if (context_reply_len <= 2U) {
@@ -837,44 +838,17 @@ clip_authenticate(struct pull_ctx *ctx)
 }
 
 
-static clip_u32
-elite_load_be32(const clip_u8 *p)
-{
-    clip_u32 v;
-
-    v = ((clip_u32)p[0] << 24);
-    v |= ((clip_u32)p[1] << 16);
-    v |= ((clip_u32)p[2] << 8);
-    v |= (clip_u32)p[3];
-    return v;
-}
-
-static unsigned int
-elite_load_be16(const clip_u8 *p)
-{
-    return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
-}
-
-static void
-elite_store_be32(clip_u8 *p, clip_u32 v)
-{
-    p[0] = (clip_u8)(v >> 24);
-    p[1] = (clip_u8)(v >> 16);
-    p[2] = (clip_u8)(v >> 8);
-    p[3] = (clip_u8)v;
-}
-
 static int
 elite_exchange(struct pull_ctx *ctx,
-               const clip_u8 *request,
+               const j_u8 *request,
                size_t request_len,
-               clip_u8 expected_opcode,
-               clip_u8 *reply,
+               j_u8 expected_opcode,
+               j_u8 *reply,
                size_t reply_capacity,
                size_t *reply_len,
                unsigned long timeout_ms)
 {
-    clip_u8 incoming[CLIP_WIRE_MAX];
+    j_u8 incoming[CLIP_WIRE_MAX];
     size_t incoming_len;
     unsigned long start;
     unsigned long now;
@@ -933,10 +907,10 @@ elite_exchange(struct pull_ctx *ctx,
 }
 
 static int
-elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
+elite_transfer_control(struct pull_ctx *ctx, j_u8 opcode)
 {
-    clip_u8 request[8];
-    clip_u8 reply[32];
+    j_u8 request[8];
+    j_u8 reply[32];
     size_t reply_len;
     int rc;
 
@@ -974,9 +948,9 @@ elite_transfer_control(struct pull_ctx *ctx, clip_u8 opcode)
 static int
 elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
 {
-    clip_u8 request[8];
-    clip_u8 reply[CLIP_WIRE_MAX];
-    const clip_u8 *data;
+    j_u8 request[8];
+    j_u8 reply[CLIP_WIRE_MAX];
+    const j_u8 *data;
     size_t reply_len;
     size_t data_len;
     size_t starts_off;
@@ -996,12 +970,12 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
     memset(map, 0, sizeof(*map));
 
     request[0] = 0x43U;
-    request[1] = (clip_u8)((ELITE_II_DESCRIPTOR_ID >> 8) & 0xffU);
-    request[2] = (clip_u8)(ELITE_II_DESCRIPTOR_ID & 0xffU);
+    request[1] = (j_u8)((ELITE_II_DESCRIPTOR_ID >> 8) & 0xffU);
+    request[2] = (j_u8)(ELITE_II_DESCRIPTOR_ID & 0xffU);
     request[3] = 0x00U;
     request[4] = 0x00U;
     request[5] = 0x00U;
-    request[6] = (clip_u8)ELITE_II_DESCRIPTOR_SIZE;
+    request[6] = (j_u8)ELITE_II_DESCRIPTOR_SIZE;
     request[7] = 0xffU;
 
     rc = elite_exchange(ctx,
@@ -1044,9 +1018,9 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
      * the three runs present in the resulting legacy .xcal:
      * 00004004-00006000, 00008000-0007FFFE, 01000080-01001FFE.
      */
-    nested_len = elite_load_be16(data);
-    count = elite_load_be16(data + 4U);
-    address_size = elite_load_be16(data + 6U);
+    nested_len = j_load_be16(data);
+    count = j_load_be16(data + 4U);
+    address_size = j_load_be16(data + 6U);
 
     if ((size_t)nested_len + 2U > data_len ||
         count == 0U ||
@@ -1063,7 +1037,7 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
         return PULL_ERR_PROTOCOL;
     }
 
-    length_size = elite_load_be16(data + length_size_off);
+    length_size = j_load_be16(data + length_size_off);
     if (length_size != 4U) {
         set_last_error_text("Unsupported ELITE II calibration length width.");
         return PULL_ERR_PROTOCOL;
@@ -1079,14 +1053,14 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
     map->range_count = count;
     for (i = 0U; i < count; ++i) {
         map->ranges[i].address =
-            elite_load_be32(data + starts_off + ((size_t)i * 4U));
+            j_load_be32(data + starts_off + ((size_t)i * 4U));
         map->ranges[i].length =
-            elite_load_be32(data + lengths_off + ((size_t)i * 4U));
-        map->ranges[i].auxiliary = (clip_u32)0;
+            j_load_be32(data + lengths_off + ((size_t)i * 4U));
+        map->ranges[i].auxiliary = (j_u32)0;
 
-        if (map->ranges[i].length == (clip_u32)0 ||
+        if (map->ranges[i].length == (j_u32)0 ||
             map->ranges[i].address >
-            (clip_u32)0xffffffffUL - map->ranges[i].length) {
+            (j_u32)0xffffffffUL - map->ranges[i].length) {
             set_last_error_text("Invalid ELITE II calibration memory range.");
             return PULL_ERR_PROTOCOL;
         }
@@ -1097,16 +1071,16 @@ elite_get_descriptor(struct pull_ctx *ctx, struct clip_cal_map *map)
 
 static int
 elite_read_memory(struct pull_ctx *ctx,
-                  clip_u32 address,
+                  j_u32 address,
                   unsigned int length,
-                  clip_u8 *out)
+                  j_u8 *out)
 {
-    clip_u8 request[9];
-    clip_u8 reply[CLIP_WIRE_MAX];
+    j_u8 request[9];
+    j_u8 reply[CLIP_WIRE_MAX];
     size_t request_len;
     size_t reply_len;
     size_t header_len;
-    clip_u8 expected_opcode;
+    j_u8 expected_opcode;
     int rc;
 
     if (ctx == NULL || out == NULL || length == 0U ||
@@ -1116,8 +1090,8 @@ elite_read_memory(struct pull_ctx *ctx,
 
     if (length <= 0xffU) {
         request[0] = 0x4aU;
-        elite_store_be32(request + 1U, address);
-        request[5] = (clip_u8)length;
+        j_store_be32(request + 1U, address);
+        request[5] = (j_u8)length;
         request[6] = 0xffU;
         request[7] = 0xffU;
         request_len = 8U;
@@ -1125,8 +1099,8 @@ elite_read_memory(struct pull_ctx *ctx,
         header_len = 6U;
     } else {
         request[0] = 0x4cU;
-        elite_store_be32(request + 1U, address);
-        elite_store_be32(request + 5U, (clip_u32)length);
+        j_store_be32(request + 1U, address);
+        j_store_be32(request + 5U, (j_u32)length);
         request_len = 9U;
         expected_opcode = 0x4dU;
         header_len = 9U;
@@ -1144,18 +1118,18 @@ elite_read_memory(struct pull_ctx *ctx,
         return rc;
 
     if (reply_len < header_len + (size_t)length ||
-        elite_load_be32(reply + 1U) != address) {
+        j_load_be32(reply + 1U) != address) {
         set_last_error_text("Invalid ELITE II memory-read reply.");
         return PULL_ERR_PROTOCOL;
     }
 
     if (expected_opcode == 0x4bU) {
-        if (reply[5] != (clip_u8)length) {
+        if (reply[5] != (j_u8)length) {
             set_last_error_text("ELITE II short-read length mismatch.");
             return PULL_ERR_PROTOCOL;
         }
     } else {
-        if (elite_load_be32(reply + 5U) != (clip_u32)length) {
+        if (j_load_be32(reply + 5U) != (j_u32)length) {
             set_last_error_text("ELITE II block-read length mismatch.");
             return PULL_ERR_PROTOCOL;
         }
@@ -1167,10 +1141,10 @@ elite_read_memory(struct pull_ctx *ctx,
 
 static int
 cal_exchange_sequence(struct pull_ctx *ctx,
-                      const clip_u8 *request,
+                      const j_u8 *request,
                       size_t request_len,
-                      clip_u8 sequence,
-                      clip_u8 *reply,
+                      j_u8 sequence,
+                      j_u8 *reply,
                       size_t reply_capacity,
                       size_t *reply_len,
                       unsigned long timeout_ms)
@@ -1190,18 +1164,18 @@ cal_exchange_sequence(struct pull_ctx *ctx,
 
 static int
 cal_query(struct pull_ctx *ctx,
-          clip_u8 *sequence,
+          j_u8 *sequence,
           unsigned long identifier,
-          clip_u8 *out,
+          j_u8 *out,
           size_t out_capacity,
           size_t *out_len)
 {
-    clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
-    clip_u8 reply[CLIP_APP_MAX];
+    j_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
+    j_u8 reply[CLIP_APP_MAX];
     size_t reply_len;
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     if (ctx == NULL || sequence == NULL || out == NULL || out_len == NULL)
@@ -1249,10 +1223,10 @@ cal_query(struct pull_ctx *ctx,
 
 static int
 cal_query_discard(struct pull_ctx *ctx,
-                  clip_u8 *sequence,
+                  j_u8 *sequence,
                   unsigned long identifier)
 {
-    clip_u8 data[CLIP_APP_MAX];
+    j_u8 data[CLIP_APP_MAX];
     size_t data_len;
 
     return cal_query(ctx,
@@ -1271,13 +1245,13 @@ cal_query_discard(struct pull_ctx *ctx,
  */
 static int
 cal_query_tolerate_negative(struct pull_ctx *ctx,
-                            clip_u8 *sequence,
+                            j_u8 *sequence,
                             unsigned long identifier)
 {
-    clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
-    clip_u8 reply[CLIP_APP_MAX];
+    j_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
+    j_u8 reply[CLIP_APP_MAX];
     size_t reply_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     if (ctx == NULL || sequence == NULL)
@@ -1318,15 +1292,15 @@ cal_query_tolerate_negative(struct pull_ctx *ctx,
 /* Observed short service-0x12 transaction: 12 <seq> 00 0B. */
 static int
 cal_enter_0b_state(struct pull_ctx *ctx,
-                   clip_u8 *sequence,
+                   j_u8 *sequence,
                    int use_zero_outer_state)
 {
-    clip_u8 request[4];
-    clip_u8 reply[256];
+    j_u8 request[4];
+    j_u8 reply[256];
     size_t reply_len;
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     if (ctx == NULL || sequence == NULL)
@@ -1385,13 +1359,13 @@ cal_enter_0b_state(struct pull_ctx *ctx,
  * proven from the serializer.
  */
 static int
-cal_preflight_multi_query(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_preflight_multi_query(struct pull_ctx *ctx, j_u8 *sequence)
 {
-    clip_u8 request[31];
-    clip_u8 reply[CLIP_APP_MAX];
+    j_u8 request[31];
+    j_u8 reply[CLIP_APP_MAX];
     size_t reply_len;
-    clip_u8 seq;
-    static const clip_u8 tail[29] = {
+    j_u8 seq;
+    static const j_u8 tail[29] = {
         0x07U,
         0x01U,0x00U,0x00U,0x82U,
         0x01U,0x00U,0x29U,0x24U,
@@ -1438,7 +1412,7 @@ cal_preflight_multi_query(struct pull_ctx *ctx, clip_u8 *sequence)
  * two final 0x2226 polls before entering 0x0011 at sequence 0x16.
  */
 static int
-cal_run_protocol_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_run_protocol_preflight(struct pull_ctx *ctx, j_u8 *sequence)
 {
     int rc;
 
@@ -1505,7 +1479,7 @@ cal_run_protocol_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
  * preflight through sequence 0x11, then follows the ordering in the supplied
  * reference tool programming capture for sequences 0x12..0x15. */
 static int
-cal_run_upload_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
+cal_run_upload_preflight(struct pull_ctx *ctx, j_u8 *sequence)
 {
     int rc;
 
@@ -1551,14 +1525,14 @@ cal_run_upload_preflight(struct pull_ctx *ctx, clip_u8 *sequence)
 }
 
 static int
-cal_enter_phase(struct pull_ctx *ctx, clip_u8 *sequence, clip_u8 phase)
+cal_enter_phase(struct pull_ctx *ctx, j_u8 *sequence, j_u8 phase)
 {
-    clip_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
-    clip_u8 reply[256];
+    j_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    j_u8 reply[256];
     size_t reply_len;
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     seq = *sequence;
@@ -1596,16 +1570,16 @@ cal_enter_phase(struct pull_ctx *ctx, clip_u8 *sequence, clip_u8 phase)
 
 static int
 cal_enter_mode_value(struct pull_ctx *ctx,
-                     clip_u8 *sequence,
+                     j_u8 *sequence,
                      unsigned int mode,
-                     clip_u8 value)
+                     j_u8 value)
 {
-    clip_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
-    clip_u8 reply[256];
+    j_u8 request[CLIP_CAL_PHASE_REQUEST_SIZE];
+    j_u8 reply[256];
     size_t reply_len;
-    const clip_u8 *data;
+    const j_u8 *data;
     size_t data_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     if (ctx == NULL || sequence == NULL)
@@ -1666,7 +1640,7 @@ cal_enter_mode_value(struct pull_ctx *ctx,
 static int
 cal_end_phase(struct pull_ctx *ctx)
 {
-    clip_u8 request[CLIP_CAL_END_REQUEST_SIZE];
+    j_u8 request[CLIP_CAL_END_REQUEST_SIZE];
     int rc;
 
     clip_cal_build_end_request(request);
@@ -1681,13 +1655,13 @@ cal_end_phase(struct pull_ctx *ctx)
 
 static int
 cal_get_descriptor(struct pull_ctx *ctx,
-                   clip_u8 *sequence,
+                   j_u8 *sequence,
                    struct clip_cal_map *map)
 {
-    clip_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
-    clip_u8 reply[CLIP_APP_MAX];
+    j_u8 request[CLIP_CAL_QUERY_REQUEST_SIZE];
+    j_u8 reply[CLIP_APP_MAX];
     size_t reply_len;
-    clip_u8 seq;
+    j_u8 seq;
     int rc;
 
     seq = *sequence;
@@ -1745,20 +1719,20 @@ cal_get_descriptor(struct pull_ctx *ctx,
     return PULL_OK;
 }
 
-static clip_u32
-load_be32_local(const clip_u8 *p)
+static j_u32
+load_be32_local(const j_u8 *p)
 {
-    clip_u32 v;
+    j_u32 v;
 
-    v = ((clip_u32)p[0] << 24);
-    v |= ((clip_u32)p[1] << 16);
-    v |= ((clip_u32)p[2] << 8);
-    v |= (clip_u32)p[3];
+    v = ((j_u32)p[0] << 24);
+    v |= ((j_u32)p[1] << 16);
+    v |= ((j_u32)p[2] << 8);
+    v |= (j_u32)p[3];
     return v;
 }
 
 static void
-format_version4(const clip_u8 *data, size_t len, char *out, size_t out_size)
+format_version4(const j_u8 *data, size_t len, char *out, size_t out_size)
 {
     if (out == NULL || out_size == 0U)
         return;
@@ -1775,13 +1749,13 @@ format_version4(const clip_u8 *data, size_t len, char *out, size_t out_size)
 }
 
 static int
-is_printable_byte(clip_u8 c)
+is_printable_byte(j_u8 c)
 {
     return c >= 0x20U && c <= 0x7eU;
 }
 
 static void
-extract_longest_ascii(const clip_u8 *data,
+extract_longest_ascii(const j_u8 *data,
                       size_t len,
                       char *out,
                       size_t out_size)
@@ -1830,7 +1804,7 @@ extract_longest_ascii(const clip_u8 *data,
 }
 
 static int
-all_zero(const clip_u8 *data, size_t len)
+all_zero(const j_u8 *data, size_t len)
 {
     size_t i;
 
@@ -1845,9 +1819,9 @@ all_zero(const clip_u8 *data, size_t len)
 
 static int
 query_meta_required(struct pull_ctx *ctx,
-                    clip_u8 *sequence,
+                    j_u8 *sequence,
                     unsigned long id,
-                    clip_u8 *buf,
+                    j_u8 *buf,
                     size_t cap,
                     size_t *len,
                     const char *label)
@@ -1868,13 +1842,13 @@ query_meta_required(struct pull_ctx *ctx,
 
 static int
 collect_metadata(struct pull_ctx *ctx,
-                 clip_u8 *sequence,
+                 j_u8 *sequence,
                  const struct clip_cal_map *map,
                  struct pull_meta *meta)
 {
-    clip_u8 data[512];
+    j_u8 data[512];
     size_t len;
-    clip_u32 value;
+    j_u32 value;
     char ascii[128];
     int rc;
 
@@ -2060,7 +2034,7 @@ allocate_image(const struct clip_cal_map *map, struct pull_image *image)
         image->ranges[i].address = map->ranges[i].address;
         image->ranges[i].length = map->ranges[i].length;
         len = (size_t)map->ranges[i].length;
-        image->ranges[i].data = (clip_u8 *)malloc(len);
+        image->ranges[i].data = (j_u8 *)malloc(len);
         if (image->ranges[i].data == NULL) {
             set_last_error_text("Out of memory allocating calibration image.");
             free_image(image);
@@ -2078,8 +2052,8 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
                          struct pull_image *image)
 {
     unsigned int i;
-    clip_u32 offset;
-    clip_u32 remaining;
+    j_u32 offset;
+    j_u32 remaining;
     unsigned int chunk;
     size_t total;
     size_t completed;
@@ -2098,12 +2072,12 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
 
     completed = 0U;
     for (i = 0U; i < map->range_count; ++i) {
-        offset = (clip_u32)0;
+        offset = (j_u32)0;
 
         while (offset < map->ranges[i].length) {
             remaining = map->ranges[i].length - offset;
             chunk = ELITE_II_BLOCK_SIZE;
-            if ((clip_u32)chunk > remaining)
+            if ((j_u32)chunk > remaining)
                 chunk = (unsigned int)remaining;
 
             rc = elite_read_memory(ctx,
@@ -2113,7 +2087,7 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
             if (rc != PULL_OK)
                 return rc;
 
-            offset += (clip_u32)chunk;
+            offset += (j_u32)chunk;
             completed += (size_t)chunk;
 
             percent = 15 + (int)((completed * 77U) / total);
@@ -2133,19 +2107,19 @@ elite_pull_memory_ranges(struct pull_ctx *ctx,
 
 static int
 pull_memory_ranges(struct pull_ctx *ctx,
-                   clip_u8 *sequence,
+                   j_u8 *sequence,
                    const struct clip_cal_map *map,
                    struct pull_image *image)
 {
     unsigned int i;
-    clip_u32 offset;
-    clip_u32 remaining;
+    j_u32 offset;
+    j_u32 remaining;
     unsigned int chunk;
-    clip_u8 request[CLIP_CAL_READ_REQUEST_SIZE];
-    clip_u8 reply[CLIP_APP_MAX];
+    j_u8 request[CLIP_CAL_READ_REQUEST_SIZE];
+    j_u8 reply[CLIP_APP_MAX];
     size_t reply_len;
-    const clip_u8 *data;
-    clip_u8 seq;
+    const j_u8 *data;
+    j_u8 seq;
     int rc;
     size_t total;
     size_t done;
@@ -2164,12 +2138,12 @@ pull_memory_ranges(struct pull_ctx *ctx,
     done = 0U;
 
     for (i = 0U; i < map->range_count; ++i) {
-        offset = (clip_u32)0;
+        offset = (j_u32)0;
 
         while (offset < map->ranges[i].length) {
             remaining = map->ranges[i].length - offset;
             chunk = CLIP_CAL_DEFAULT_CHUNK_SIZE;
-            if ((clip_u32)chunk > remaining)
+            if ((j_u32)chunk > remaining)
                 chunk = (unsigned int)remaining;
 
             seq = *sequence;
@@ -2207,7 +2181,7 @@ pull_memory_ranges(struct pull_ctx *ctx,
             memcpy(image->ranges[i].data + (size_t)offset,
                    data,
                    (size_t)chunk);
-            offset += (clip_u32)chunk;
+            offset += (j_u32)chunk;
             done += (size_t)chunk;
 
             /*
@@ -2241,7 +2215,7 @@ pull_memory_ranges(struct pull_ctx *ctx,
                     blocks = 1UL;
                 if (blocks > 255UL)
                     blocks = 255UL;
-                ctx->session_id = (clip_u8)blocks;
+                ctx->session_id = (j_u8)blocks;
             }
 
             /*
@@ -2270,19 +2244,19 @@ pull_memory_ranges(struct pull_ctx *ctx,
 
 static int
 collect_auxiliary(struct pull_ctx *ctx,
-                  clip_u8 *sequence,
+                  j_u8 *sequence,
                   struct pull_meta *meta)
 {
-    clip_u8 query_data[256];
+    j_u8 query_data[256];
     size_t query_len;
-    clip_u8 request[CLIP_CAL_PTR_REQUEST_SIZE];
-    clip_u8 reply[256];
+    j_u8 request[CLIP_CAL_PTR_REQUEST_SIZE];
+    j_u8 reply[256];
     size_t reply_len;
-    clip_u32 pointer;
-    clip_u8 read_request[CLIP_CAL_READ_REQUEST_SIZE];
-    const clip_u8 *read_data;
-    clip_u8 harness[CLIP_CAL_HARNESS_COMPAT_SIZE];
-    clip_u8 seq;
+    j_u32 pointer;
+    j_u8 read_request[CLIP_CAL_READ_REQUEST_SIZE];
+    const j_u8 *read_data;
+    j_u8 harness[CLIP_CAL_HARNESS_COMPAT_SIZE];
+    j_u8 seq;
     unsigned int i;
     int rc;
     char *p;
@@ -2334,7 +2308,7 @@ collect_auxiliary(struct pull_ctx *ctx,
     for (i = 0U; i < CLIP_CAL_HARNESS_COMPAT_SIZE; ++i) {
         seq = *sequence;
         rc = clip_cal_build_read_request(seq,
-                                         pointer + (clip_u32)i,
+                                         pointer + (j_u32)i,
                                          1U,
                                          read_request);
         if (rc != CLIP_CAL_OK)
@@ -2382,7 +2356,7 @@ collect_auxiliary(struct pull_ctx *ctx,
      * immediately after the file is closed.
      */
     {
-        clip_u8 post_data[CLIP_APP_MAX];
+        j_u8 post_data[CLIP_APP_MAX];
         size_t post_len;
 
         rc = cal_query(ctx,
@@ -2451,7 +2425,7 @@ static int
 write_ihex_record(FILE *fp,
                   unsigned int type,
                   unsigned int address,
-                  const clip_u8 *data,
+                  const j_u8 *data,
                   unsigned int count)
 {
     unsigned int sum;
@@ -2493,15 +2467,15 @@ write_elite_xcal(const char *path, const struct pull_image *image)
     unsigned int j;
     unsigned int tmp_index;
     unsigned int range_index;
-    clip_u32 offset;
-    clip_u32 address;
+    j_u32 offset;
+    j_u32 address;
     unsigned int high;
     unsigned int current_high;
     unsigned int low;
     unsigned int room;
     unsigned int count;
-    clip_u8 ela[2];
-    clip_u8 crc_placeholder[4];
+    j_u8 ela[2];
+    j_u8 crc_placeholder[4];
     int ok;
 
     if (path == NULL || image == NULL)
@@ -2552,7 +2526,7 @@ write_elite_xcal(const char *path, const struct pull_image *image)
 
     for (i = 0U; ok && i < order_count; ++i) {
         range_index = order[i];
-        offset = (clip_u32)0;
+        offset = (j_u32)0;
 
         while (offset < image->ranges[range_index].length) {
             address = image->ranges[range_index].address + offset;
@@ -2560,8 +2534,8 @@ write_elite_xcal(const char *path, const struct pull_image *image)
             low = (unsigned int)(address & 0xffffUL);
 
             if (high != current_high) {
-                ela[0] = (clip_u8)((high >> 8) & 0xffU);
-                ela[1] = (clip_u8)(high & 0xffU);
+                ela[0] = (j_u8)((high >> 8) & 0xffU);
+                ela[1] = (j_u8)(high & 0xffU);
                 if (!write_ihex_record(fp, 0x04U, 0U, ela, 2U)) {
                     ok = 0;
                     break;
@@ -2571,7 +2545,7 @@ write_elite_xcal(const char *path, const struct pull_image *image)
 
             room = 0x10000U - low;
             count = 16U;
-            if ((clip_u32)count >
+            if ((j_u32)count >
                 image->ranges[range_index].length - offset) {
                 count = (unsigned int)
                     (image->ranges[range_index].length - offset);
@@ -2589,7 +2563,7 @@ write_elite_xcal(const char *path, const struct pull_image *image)
                 break;
             }
 
-            offset += (clip_u32)count;
+            offset += (j_u32)count;
         }
     }
 
@@ -2617,14 +2591,14 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
     unsigned int j;
     unsigned int tmp_index;
     unsigned int range_index;
-    clip_u32 offset;
-    clip_u32 address;
+    j_u32 offset;
+    j_u32 address;
     unsigned int high;
     unsigned int current_high;
     unsigned int low;
     unsigned int room;
     unsigned int count;
-    clip_u8 ela[2];
+    j_u8 ela[2];
 
     if (fp == NULL || image == NULL)
         return 0;
@@ -2655,7 +2629,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
 
     for (i = 0U; i < order_count; ++i) {
         range_index = order[i];
-        offset = (clip_u32)0;
+        offset = (j_u32)0;
 
         while (offset < image->ranges[range_index].length) {
             address = image->ranges[range_index].address + offset;
@@ -2663,8 +2637,8 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
             low = (unsigned int)(address & 0xffffUL);
 
             if (high != current_high) {
-                ela[0] = (clip_u8)((high >> 8) & 0xffU);
-                ela[1] = (clip_u8)(high & 0xffU);
+                ela[0] = (j_u8)((high >> 8) & 0xffU);
+                ela[1] = (j_u8)(high & 0xffU);
                 if (!write_ihex_record(fp, 0x04U, 0U, ela, 2U))
                     return 0;
                 current_high = high;
@@ -2672,7 +2646,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
 
             room = 0x10000U - low;
             count = 32U;
-            if ((clip_u32)count >
+            if ((j_u32)count >
                 image->ranges[range_index].length - offset) {
                 count = (unsigned int)
                     (image->ranges[range_index].length - offset);
@@ -2689,7 +2663,7 @@ write_ihex_image(FILE *fp, const struct pull_image *image)
                 return 0;
             }
 
-            offset += (clip_u32)count;
+            offset += (j_u32)count;
         }
     }
 
@@ -2817,7 +2791,7 @@ write_xcal(const char *path,
 
 static int
 cal_prepare_programming(struct pull_ctx *ctx,
-                        clip_u8 *sequence,
+                        j_u8 *sequence,
                         int *loader_requested)
 {
     int rc;
@@ -2866,7 +2840,7 @@ cal_prepare_programming(struct pull_ctx *ctx,
 static void
 wait_for_ecm_clip_close(struct pull_ctx *ctx)
 {
-    clip_u8 rx[CLIP_WIRE_MAX];
+    j_u8 rx[CLIP_WIRE_MAX];
     size_t rx_len;
     int rc;
 
@@ -2883,11 +2857,11 @@ wait_for_ecm_clip_close(struct pull_ctx *ctx)
 
 static int
 raw_wait_prefix(struct pull_ctx *ctx,
-                const clip_u8 *prefix,
+                const j_u8 *prefix,
                 size_t prefix_len,
                 unsigned long timeout_ms)
 {
-    clip_u8 rx[CLIP_WIRE_MAX];
+    j_u8 rx[CLIP_WIRE_MAX];
     size_t rx_len;
     unsigned long start;
     unsigned long now;
@@ -2924,9 +2898,9 @@ raw_wait_prefix(struct pull_ctx *ctx,
 
 static int
 raw_exchange_prefix(struct pull_ctx *ctx,
-                    const clip_u8 *request,
+                    const j_u8 *request,
                     size_t request_len,
-                    const clip_u8 *prefix,
+                    const j_u8 *prefix,
                     size_t prefix_len)
 {
     int rc;
@@ -2941,33 +2915,33 @@ raw_exchange_prefix(struct pull_ctx *ctx,
 static int
 raw_loader_preamble(struct pull_ctx *ctx)
 {
-    static const clip_u8 q_password[8] =
+    static const j_u8 q_password[8] =
         {0x43U,0x00U,0x05U,0x00U,0x00U,0x00U,0x06U,0xffU};
-    static const clip_u8 a_password[3] = {0x44U,0x00U,0x05U};
-    static const clip_u8 q_family[8] =
+    static const j_u8 a_password[3] = {0x44U,0x00U,0x05U};
+    static const j_u8 q_family[8] =
         {0x43U,0x00U,0x00U,0x00U,0x00U,0x00U,0x02U,0xffU};
-    static const clip_u8 a_family[3] = {0x44U,0x00U,0x00U};
-    static const clip_u8 q_43[8] =
+    static const j_u8 a_family[3] = {0x44U,0x00U,0x00U};
+    static const j_u8 q_43[8] =
         {0x41U,0x00U,0x43U,0xffU,0xffU,0xffU,0xffU,0xffU};
-    static const clip_u8 a_43[5] = {0x0dU,0x08U,0x41U,0x00U,0x43U};
-    static const clip_u8 q_10[8] =
+    static const j_u8 a_43[5] = {0x0dU,0x08U,0x41U,0x00U,0x43U};
+    static const j_u8 q_10[8] =
         {0x41U,0x00U,0x10U,0xffU,0xffU,0xffU,0xffU,0xffU};
-    static const clip_u8 a_10[3] = {0x42U,0x00U,0x10U};
-    static const clip_u8 r_10[8] =
+    static const j_u8 a_10[3] = {0x42U,0x00U,0x10U};
+    static const j_u8 r_10[8] =
         {0x4aU,0x40U,0x01U,0x00U,0x08U,0x01U,0xffU,0xffU};
-    static const clip_u8 d_10[6] = {0x4bU,0x40U,0x01U,0x00U,0x08U,0x01U};
-    static const clip_u8 q_48[8] =
+    static const j_u8 d_10[6] = {0x4bU,0x40U,0x01U,0x00U,0x08U,0x01U};
+    static const j_u8 q_48[8] =
         {0x41U,0x00U,0x48U,0xffU,0xffU,0xffU,0xffU,0xffU};
-    static const clip_u8 a_48[3] = {0x42U,0x00U,0x48U};
-    static const clip_u8 r_48[8] =
+    static const j_u8 a_48[3] = {0x42U,0x00U,0x48U};
+    static const j_u8 r_48[8] =
         {0x4aU,0x00U,0xffU,0xfcU,0x08U,0x04U,0xffU,0xffU};
-    static const clip_u8 d_48[6] = {0x4bU,0x00U,0xffU,0xfcU,0x08U,0x04U};
-    static const clip_u8 q_01[8] =
+    static const j_u8 d_48[6] = {0x4bU,0x00U,0xffU,0xfcU,0x08U,0x04U};
+    static const j_u8 q_01[8] =
         {0x41U,0x00U,0x01U,0xffU,0xffU,0xffU,0xffU,0xffU};
-    static const clip_u8 a_01[3] = {0x42U,0x00U,0x01U};
-    static const clip_u8 r_01[8] =
+    static const j_u8 a_01[3] = {0x42U,0x00U,0x01U};
+    static const j_u8 r_01[8] =
         {0x4aU,0x00U,0xffU,0xfcU,0x00U,0x04U,0xffU,0xffU};
-    static const clip_u8 d_01[6] = {0x4bU,0x00U,0xffU,0xfcU,0x00U,0x04U};
+    static const j_u8 d_01[6] = {0x4bU,0x00U,0xffU,0xfcU,0x00U,0x04U};
     int rc;
 
 #define RAW_STEP(req_, ans_) do { \
@@ -2998,7 +2972,7 @@ raw_cal_send(void *user, const unsigned char *data, unsigned int length)
     int rc;
 
     ctx = (struct pull_ctx *)user;
-    rc = j1939_send_payload(ctx, (const clip_u8 *)data, (size_t)length);
+    rc = j1939_send_payload(ctx, (const j_u8 *)data, (size_t)length);
     return rc == PULL_OK ? 0 : rc;
 }
 
@@ -3019,7 +2993,7 @@ raw_cal_recv(void *user,
     ctx = (struct pull_ctx *)user;
     n = 0U;
     rc = j1939_read_payload(ctx,
-                            (clip_u8 *)data,
+                            (j_u8 *)data,
                             (size_t)capacity,
                             &n,
                             timeout_ms);
@@ -3063,12 +3037,12 @@ verify_ecm_after_programming(struct pull_ctx *ctx,
                              const char *api_name,
                              int device_id,
                              int baud,
-                             clip_u8 tool_sa,
-                             clip_u8 ecm_sa,
+                             j_u8 tool_sa,
+                             j_u8 ecm_sa,
                              int *lock_confirmed)
 {
     RP1210_PROGRESS_CALLBACK saved_progress;
-    clip_u8 sequence;
+    j_u8 sequence;
     int attempt;
     int rc;
 
@@ -3155,11 +3129,11 @@ relock_after_loader_failure(struct pull_ctx *ctx,
                             const char *api_name,
                             int device_id,
                             int baud,
-                            clip_u8 tool_sa,
-                            clip_u8 ecm_sa)
+                            j_u8 tool_sa,
+                            j_u8 ecm_sa)
 {
     RP1210_PROGRESS_CALLBACK saved_progress;
-    clip_u8 sequence;
+    j_u8 sequence;
     int attempt;
     int rc;
 
@@ -3214,7 +3188,7 @@ rp1210_pull_xcal(const char *api_name,
     struct pull_image image;
     struct pull_meta meta;
     echo_io echo;
-    clip_u8 sequence;
+    j_u8 sequence;
     int rc;
     int echo_detected;
     int clip_open;
@@ -3246,8 +3220,8 @@ rp1210_pull_xcal(const char *api_name,
                                api_name,
                                device_id,
                                baud,
-                               (clip_u8)tool_sa,
-                               (clip_u8)ecm_sa);
+                               (j_u8)tool_sa,
+                               (j_u8)ecm_sa);
     if (rc != PULL_OK)
         goto done;
 
@@ -3417,7 +3391,7 @@ rp1210_upload_xcal(const char *api_name,
     clip_cal_io io;
     clip_cal_options options;
     echo_io echo;
-    clip_u8 sequence;
+    j_u8 sequence;
     int rc;
     int cal_rc;
     int echo_detected;
@@ -3480,8 +3454,8 @@ rp1210_upload_xcal(const char *api_name,
                                api_name,
                                device_id,
                                baud,
-                               (clip_u8)tool_sa,
-                               (clip_u8)ecm_sa);
+                               (j_u8)tool_sa,
+                               (j_u8)ecm_sa);
     if (rc != PULL_OK)
         goto done;
 
@@ -3625,8 +3599,8 @@ rp1210_upload_xcal(const char *api_name,
                                       api_name,
                                       device_id,
                                       baud,
-                                      (clip_u8)tool_sa,
-                                      (clip_u8)ecm_sa,
+                                      (j_u8)tool_sa,
+                                      (j_u8)ecm_sa,
                                       &lock_confirmed);
     if (rc != PULL_OK)
         goto done;
@@ -3650,7 +3624,7 @@ rp1210_upload_xcal(const char *api_name,
                 "Upload interrupted; checking whether ECM can be re-locked...");
             restored = relock_after_loader_failure(
                 &ctx, api_name, device_id, baud,
-                (clip_u8)tool_sa, (clip_u8)ecm_sa);
+                (j_u8)tool_sa, (j_u8)ecm_sa);
         } else if (clip_open && !already_unlocked) {
             report_progress(&ctx, 96,
                 "Upload aborted before loader; restoring calibration lock...");

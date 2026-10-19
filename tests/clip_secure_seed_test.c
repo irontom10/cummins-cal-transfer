@@ -12,7 +12,7 @@
 static void
 test_legacy_remains_legacy(void)
 {
-    static const clip_u8 legacy[] = {
+    static const j_u8 legacy[] = {
         0x01U, 0x02U, 0x02U, 0x00U,
         0x10U, 0x20U, 0x30U, 0x40U
     };
@@ -30,7 +30,7 @@ test_legacy_remains_legacy(void)
 static void
 test_secure_seed_is_distinct(void)
 {
-    static const clip_u8 secure_pdu[CLIP_SECURE_SEED_PDU_SIZE] = {
+    static const j_u8 secure_pdu[CLIP_SECURE_SEED_PDU_SIZE] = {
         0x02U, 0x02U, 0x6bU, 0x1fU,
         0x10U, 0x22U, 0x34U, 0x46U,
         0x58U, 0x6aU, 0x7cU, 0x8eU,
@@ -53,7 +53,7 @@ test_secure_seed_is_distinct(void)
 static void
 test_malformed_secure_seed_rejected(void)
 {
-    clip_u8 pdu[CLIP_SECURE_SEED_PDU_SIZE + 1U];
+    j_u8 pdu[CLIP_SECURE_SEED_PDU_SIZE + 1U];
     struct clip_secure_seed_reply reply;
 
     memset(pdu, 0x55, sizeof(pdu));
