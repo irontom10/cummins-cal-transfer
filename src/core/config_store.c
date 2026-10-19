@@ -650,11 +650,11 @@ ct_join_path(char *out,
 static int
 ct_build_default_path(char *out, int out_size)
 {
-    char base[CT_PATH_CAP];
     char config_dir[CT_PATH_CAP];
     char app_dir[CT_PATH_CAP];
 
 #ifdef _WIN32
+    char base[CT_PATH_CAP];
     if (!ct_get_windows_home(base, (int)sizeof(base))) {
         ct_set_error("USERPROFILE is unavailable; cannot resolve ~/.config.");
         return 0;
@@ -1186,9 +1186,9 @@ int CT_CONFIG_CALL
 ct_config_save(void)
 {
     char temp_path[CT_PATH_CAP];
+    char pid_suffix[32];
     FILE *fp;
     size_t i;
-    size_t need;
     int ok;
     const char *line_end;
 
@@ -1197,16 +1197,15 @@ ct_config_save(void)
         return -1;
     }
 
-    need = strlen(g_path) + 32U;
-    if (need > sizeof(temp_path)) {
+    sprintf(pid_suffix, ".%lu.tmp", ct_process_id());
+    if (!ct_join_path(temp_path,
+                      (int)sizeof(temp_path),
+                      g_path,
+                      "",
+                      pid_suffix)) {
         ct_set_error("Temporary configuration path is too long.");
         return -1;
     }
-
-    sprintf(temp_path,
-            "%s.%lu.tmp",
-            g_path,
-            ct_process_id());
 
     fp = ct_fopen_path(temp_path, "wb");
     if (fp == NULL) {
