@@ -882,7 +882,21 @@ static int clip_cal_validate_image(const clip_cal_image *image,
      * been validated independently.  An arbitrary one/two/four/five-range
      * truncated XCAL must not become programmable just by fixing its CRC.
      */
-    if (found_special == 0U && image->count != 3U) {
+    /*
+     * The observed short-metadata upload belongs to a four-region image.
+     * A lone 0x00A00000 record is valid HEX, but it is not a calibration.
+     * Do not mistake its CRC for proof that the other programming ranges
+     * are present.  Three-region, metadata-free CM2250 readbacks remain
+     * a distinct legacy layout.
+     *
+     * Region count is only a preliminary structural check.  Full target-
+     * specific completeness and live compatibility remain separate gates.
+     */
+    if (found_special != 0U) {
+        if (image->count != 4U) {
+            return CLIP_CAL_ERR_LAYOUT;
+        }
+    } else if (image->count != 3U) {
         return CLIP_CAL_ERR_LAYOUT;
     }
 
