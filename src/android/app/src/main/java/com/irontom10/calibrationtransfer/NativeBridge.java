@@ -1,6 +1,8 @@
 package com.irontom10.calibrationtransfer;
 
 public final class NativeBridge {
+    public static final int TRANSFER_BUSY = -110;
+
     static {
         System.loadLibrary("caltransfer");
     }

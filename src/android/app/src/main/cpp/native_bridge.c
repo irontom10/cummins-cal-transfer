@@ -5,6 +5,7 @@
  */
 
 #include <jni.h>
+#include <pthread.h>
 #include <string.h>
 
 #include "rp1210_android.h"
@@ -14,6 +15,14 @@
 static JavaVM *g_vm = NULL;
 static jobject g_progress_target = NULL;
 static jmethodID g_progress_method = NULL;
+
+/*
+ * The native callback target and RP1210 error/transport state are process-
+ * global.  Claim this mutex before touching any of them during a transfer.
+ * A duplicate call fails immediately instead of replacing a live callback.
+ */
+#define JNI_TRANSFER_BUSY (-110)
+static pthread_mutex_t g_transfer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void
 clear_progress_target(JNIEnv *env)
@@ -144,7 +153,18 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configureRp1210(
         return 0;
     }
 
+    /*
+     * A second Activity must not replace the RP1210 device configuration
+     * while the first Activity is using that adapter.
+     */
+    if (pthread_mutex_trylock(&g_transfer_mutex) != 0) {
+        (*env)->ReleaseStringUTFChars(env, data_path, path);
+        (*env)->ReleaseStringUTFChars(env, mac_address, mac);
+        return JNI_TRANSFER_BUSY;
+    }
+
     ok = rp1210_android_configure(path, mac);
+    pthread_mutex_unlock(&g_transfer_mutex);
 
     (*env)->ReleaseStringUTFChars(env, data_path, path);
     (*env)->ReleaseStringUTFChars(env, mac_address, mac);
@@ -171,7 +191,12 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configLoad(
     if (path == NULL)
         return -1;
 
+    if (pthread_mutex_trylock(&g_transfer_mutex) != 0) {
+        (*env)->ReleaseStringUTFChars(env, path_string, path);
+        return JNI_TRANSFER_BUSY;
+    }
     rc = ct_config_load_path(path);
+    pthread_mutex_unlock(&g_transfer_mutex);
     (*env)->ReleaseStringUTFChars(env, path_string, path);
     return (jint)rc;
 }
@@ -183,7 +208,11 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configClose(
 {
     (void)env;
     (void)self;
-    ct_config_close();
+    /* Never close the shared config store under a live transfer. */
+    if (pthread_mutex_trylock(&g_transfer_mutex) == 0) {
+        ct_config_close();
+        pthread_mutex_unlock(&g_transfer_mutex);
+    }
 }
 
 JNIEXPORT jstring JNICALL
@@ -447,24 +476,28 @@ run_transfer(JNIEnv *env,
     const char *path;
     int rc;
 
+    /*
+     * Never block the JNI/UI caller waiting for another native transfer.
+     * Failure here does not touch progress, configuration or the adapter.
+     */
+    if (pthread_mutex_trylock(&g_transfer_mutex) != 0)
+        return JNI_TRANSFER_BUSY;
+
+    api = NULL;
+    path = NULL;
+    rc = -100;
+
     if (api_name == NULL || path_string == NULL)
-        return -100;
+        goto done;
 
     api = (*env)->GetStringUTFChars(env, api_name, NULL);
     path = (*env)->GetStringUTFChars(env, path_string, NULL);
-
-    if (api == NULL || path == NULL) {
-        if (api != NULL)
-            (*env)->ReleaseStringUTFChars(env, api_name, api);
-        if (path != NULL)
-            (*env)->ReleaseStringUTFChars(env, path_string, path);
-        return -100;
-    }
+    if (api == NULL || path == NULL)
+        goto done;
 
     if (!set_progress_target(env, progress_target)) {
-        (*env)->ReleaseStringUTFChars(env, api_name, api);
-        (*env)->ReleaseStringUTFChars(env, path_string, path);
-        return -109;
+        rc = -109;
+        goto done;
     }
 
     if (upload) {
@@ -487,11 +520,15 @@ run_transfer(JNIEnv *env,
             jni_progress);
     }
 
+ done:
     clear_progress_target(env);
 
-    (*env)->ReleaseStringUTFChars(env, api_name, api);
-    (*env)->ReleaseStringUTFChars(env, path_string, path);
+    if (api != NULL)
+        (*env)->ReleaseStringUTFChars(env, api_name, api);
+    if (path != NULL)
+        (*env)->ReleaseStringUTFChars(env, path_string, path);
 
+    pthread_mutex_unlock(&g_transfer_mutex);
     return (jint)rc;
 }
 
