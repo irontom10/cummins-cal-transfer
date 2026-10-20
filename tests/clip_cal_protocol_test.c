@@ -565,7 +565,7 @@ test_three_region_upload_stream(void)
     /*
      * CRC correctness is not a programming-image completeness check.
      * A short-metadata-only image must send ZERO commands, including 0x02.
-     * The valid short-write stream is exercised by test_bkk_upload_stream.
+     * The valid short-write stream is exercised by the BKK fixture below.
      */
     write_xcal_fixture(legacy_path, 1);
     assert(clip_cal_verify_xcal_crc(legacy_path) != 0);
