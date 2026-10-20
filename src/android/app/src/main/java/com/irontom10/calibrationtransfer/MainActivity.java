@@ -754,7 +754,9 @@ public final class MainActivity extends Activity {
                                         "ECM calibration saved and native CRC verified.");
                             }
                             else {
-                                String error = nativeBridge.getLastError();
+                                String error = result == NativeBridge.TRANSFER_BUSY
+                                        ? "Another calibration transfer is already running."
+                                        : nativeBridge.getLastError();
                                 setStatus(error);
                                 showMessage(
                                         "Calibration Download Failed",
@@ -827,7 +829,9 @@ public final class MainActivity extends Activity {
                                         "Calibration upload completed successfully.");
                             }
                             else {
-                                String error = nativeBridge.getLastError();
+                                String error = result == NativeBridge.TRANSFER_BUSY
+                                        ? "Another calibration transfer is already running."
+                                        : nativeBridge.getLastError();
                                 setStatus(error);
                                 showMessage(
                                         "Calibration Upload Failed",
@@ -874,9 +878,13 @@ public final class MainActivity extends Activity {
 
         NativeBridge.loadVendorLibrary(driver.library);
 
-        if (nativeBridge.configureRp1210(
-                getFilesDir().getPath(),
-                mac) == 0) {
+        int configured = nativeBridge.configureRp1210(
+                getFilesDir().getPath(), mac);
+        if (configured == NativeBridge.TRANSFER_BUSY) {
+            throw new IllegalStateException(
+                    "Another calibration transfer is already running.");
+        }
+        if (configured == 0) {
             throw new IllegalStateException(
                     "Could not configure Android RP1210 device.");
         }
@@ -1730,7 +1738,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        saveSettings();
+        /* Settings were saved before transfer start. Avoid modifying the
+         * shared native config store while the worker is using it. */
+        if (!busy)
+            saveSettings();
         super.onPause();
     }
 
