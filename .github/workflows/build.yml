@@ -37,6 +37,13 @@ jobs:
             -o build/tests/j1939_transport_test
 
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
+            tests/j1939_backend_test.c \
+            src/core/j1939_transport.c \
+            src/core/j_string.c \
+            src/core/ct_platform.c \
+            -o build/tests/j1939_backend_test
+
+          cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/clip_secure_seed_test.c \
             src/core/clip_crypto.c \
             src/core/j_endian.c \
@@ -57,6 +64,7 @@ jobs:
           build/tests/j_endian_test
           build/tests/clip_cal_protocol_test
           build/tests/j1939_transport_test
+          build/tests/j1939_backend_test
           build/tests/clip_secure_seed_test
 
   windows-x86:
