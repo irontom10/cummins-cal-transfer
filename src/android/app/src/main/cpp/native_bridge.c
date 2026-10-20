@@ -191,7 +191,12 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configLoad(
     if (path == NULL)
         return -1;
 
+    if (pthread_mutex_trylock(&g_transfer_mutex) != 0) {
+        (*env)->ReleaseStringUTFChars(env, path_string, path);
+        return JNI_TRANSFER_BUSY;
+    }
     rc = ct_config_load_path(path);
+    pthread_mutex_unlock(&g_transfer_mutex);
     (*env)->ReleaseStringUTFChars(env, path_string, path);
     return (jint)rc;
 }
@@ -203,7 +208,11 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configClose(
 {
     (void)env;
     (void)self;
-    ct_config_close();
+    /* Never close the shared config store under a live transfer. */
+    if (pthread_mutex_trylock(&g_transfer_mutex) == 0) {
+        ct_config_close();
+        pthread_mutex_unlock(&g_transfer_mutex);
+    }
 }
 
 JNIEXPORT jstring JNICALL
