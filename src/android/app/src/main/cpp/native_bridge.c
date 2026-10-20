@@ -160,7 +160,7 @@ Java_com_irontom10_calibrationtransfer_NativeBridge_configureRp1210(
     if (pthread_mutex_trylock(&g_transfer_mutex) != 0) {
         (*env)->ReleaseStringUTFChars(env, data_path, path);
         (*env)->ReleaseStringUTFChars(env, mac_address, mac);
-        return 0;
+        return JNI_TRANSFER_BUSY;
     }
 
     ok = rp1210_android_configure(path, mac);
