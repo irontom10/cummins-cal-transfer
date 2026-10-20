@@ -31,6 +31,8 @@ jobs:
           cc -std=c89 -Wall -Wextra -pedantic -Isrc/core \
             tests/j1939_transport_test.c \
             src/core/j1939_transport.c \
+            src/core/j1939_rp1210.c \
+            src/core/j_string.c \
             src/core/ct_platform.c \
             -o build/tests/j1939_transport_test
 

@@ -34,6 +34,8 @@ The goal is straightforward: portable, inspectable calibration tooling without d
     │   ├── clip_transfer.c
     │   ├── echo_transfer.c/.h
     │   ├── j1939_transport.c/.h
+    │   ├── j1939_backend.h
+    │   ├── j1939_rp1210.c
     │   ├── rp1210_transport.h
     │   ├── rp1210clip.h
     │   ├── rp1210scan.h
@@ -60,6 +62,8 @@ The goal is straightforward: portable, inspectable calibration tooling without d
         ├── app/
         └── gradle/
 ```
+
+J1939 sessions operate on backend-independent frames. `j1939_rp1210.c` binds those frames to RP1210; another backend (such as SocketCAN) can implement `j1939_backend.h` without RP1210 coupling.
 
 The C89 protocol/calibration logic belongs in `src/core/`. Platform-specific RP1210 loading, UI code, packaging, and operating-system integration belong under their platform directory.
 

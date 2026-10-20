@@ -33,6 +33,7 @@ add_executable(CalibrationTransferRaylib WIN32
     "${WIN_NATIVE}/rp1210scan.c"
     "${WIN_NATIVE}/rp1210_transport.c"
     "${CORE}/j1939_transport.c"
+    "${CORE}/j1939_rp1210.c"
     "${CORE}/ct_platform.c"
     "${CORE}/clip_transfer.c"
     "${CORE}/echo_transfer.c"

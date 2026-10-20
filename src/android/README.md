@@ -65,7 +65,10 @@ rp1210_transport_android.c
 vendor Android RP1210 .so
                  |
                  v
-src/core/j1939_transport.c
+src/core/j1939_rp1210.c (RP1210 adapter)
+                 |
+                 v
+src/core/j1939_transport.c (J1939 sessions)
                  |
                  v
 src/core/clip_transfer.c
