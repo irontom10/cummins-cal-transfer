@@ -19,6 +19,12 @@ extern "C" {
 #define J1939_TRANSPORT_ERR_MEMORY     -9
 
 struct j1939_transport;
+struct j1939_backend;
+
+/* Inject a frame-level backend (see j1939_backend.h). */
+struct j1939_transport *
+j1939_transport_create_with_backend(const struct j1939_backend *backend);
+
 
 struct j1939_transport *
 j1939_transport_create(void);
@@ -27,7 +33,7 @@ void
 j1939_transport_destroy(struct j1939_transport *transport);
 
 /*
- * Open a J1939 session over an RP1210 transport.
+ * Open a J1939 session over the selected backend (RP1210 by default).
  *
  * baud may be 125000, 250000, 500000, 1000000, or 0 for
  * J1939:Baud=Auto.  Auto mode intentionally does not fall back to a
