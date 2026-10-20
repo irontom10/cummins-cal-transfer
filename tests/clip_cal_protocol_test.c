@@ -562,17 +562,18 @@ test_three_region_upload_stream(void)
     assert(trace.bulk_addresses[1] == 0x00004100UL);
     assert(trace.bulk_addresses[2] == 0x00040000UL);
 
-    /* Preserve the already validated short-region programming sequence. */
+    /*
+     * CRC correctness is not a programming-image completeness check.
+     * A short-metadata-only image must send ZERO commands, including 0x02.
+     * The valid short-write stream is exercised by test_bkk_upload_stream.
+     */
     write_xcal_fixture(legacy_path, 1);
+    assert(clip_cal_verify_xcal_crc(legacy_path) != 0);
+    assert(clip_cal_validate_xcal(legacy_path) == CLIP_CAL_ERR_LAYOUT);
     memset(&trace, 0, sizeof(trace));
-    assert(clip_cal_send_xcal(legacy_path, &io, &options) == CLIP_CAL_OK);
-    assert(trace.start_commands == 1U);
-    assert(trace.end_commands == 1U);
-    assert(trace.region_lengths == 1U);
-    assert(trace.bulk_writes == 0U);
-    assert(trace.short_writes == 1U);
-    assert(trace.finish_values == 1U);
-    assert(trace.count == 5U);
+    assert(clip_cal_send_xcal(legacy_path, &io, &options) ==
+           CLIP_CAL_ERR_LAYOUT);
+    assert(trace.count == 0U);
 
     /* A CRC-correct but incomplete one-region file still sends nothing. */
     write_xcal_fixture(bad_path, 0);
@@ -656,7 +657,7 @@ test_full_xcal_preflight(void)
     const char *valid_path = "build/tests/valid-preflight.xcal";
     const char *bad_layout_path = "build/tests/bad-layout.xcal";
 
-    write_xcal_fixture(valid_path, 1);
+    write_three_region_fixture(valid_path);
     write_xcal_fixture(bad_layout_path, 0);
 
     assert(clip_cal_validate_xcal(valid_path) == CLIP_CAL_OK);
